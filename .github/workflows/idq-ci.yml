@@ -1,0 +1,57 @@
+name: CI
+
+# Verifica che l'immagine Docker si costruisca, prima che una PR entri in idq.
+# Il check "docker-build" è obbligatorio nel ruleset di idq.
+#
+# Le PR aperte da Sync upstream non fanno partire workflow (le crea il GITHUB_TOKEN):
+# per quelle Sync upstream lancia questo workflow a mano sul commit di main e il
+# risultato viene scritto come status "docker-build" su quel commit.
+
+on:
+  pull_request:
+    branches: [idq]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit da verificare (es. la testa di main per la PR di sync)"
+        required: true
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || inputs.sha }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Segna il commit come in verifica
+        if: github.event_name == 'workflow_dispatch'
+        run: gh api "repos/$GH_REPO/statuses/${{ inputs.sha }}" -f state=pending -f context=docker-build -f target_url="$RUN_URL" >/dev/null
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.ref }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build dell'immagine
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha,scope=idq-ci
+          cache-to: type=gha,scope=idq-ci,mode=max
+
+      - name: Scrivi il risultato sul commit
+        if: always() && github.event_name == 'workflow_dispatch'
+        run: |
+          state=$([ "${{ job.status }}" = success ] && echo success || echo failure)
+          gh api "repos/$GH_REPO/statuses/${{ inputs.sha }}" -f state="$state" -f context=docker-build -f target_url="$RUN_URL" >/dev/null

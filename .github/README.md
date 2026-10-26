@@ -36,6 +36,15 @@ Se la action fallisce con un errore sui permessi `workflows`, Docmost ha modific
 gh repo sync idq-org/docmost --branch main
 ```
 
+## CI e deploy
+
+Docmost gira su https://app.informaticidiquartiere.org, sulla VPS Hostinger, in `/srv/docmost` (compose, `.env` con i segreti, backup notturni del database in `backups/`).
+
+- [`CI`](workflows/idq-ci.yml) costruisce l'immagine Docker su ogni PR verso `idq`. Il check `docker-build` è obbligatorio per unire. Per le PR di Sync upstream la lancia Sync upstream stesso.
+- [`Deploy`](workflows/idq-deploy.yml) parte a ogni push su `idq` (cioè a ogni merge) e lancia `/srv/docmost/deploy.sh` sulla VPS: porta il codice a `origin/idq` e ricostruisce i container. Si può rilanciare a mano da *Actions → Deploy → Run workflow*.
+
+Sulla VPS non si modifica mai `/srv/docmost/src` a mano: a ogni deploy viene riportato a `origin/idq`.
+
 ## Sviluppo in locale
 
 ```sh
