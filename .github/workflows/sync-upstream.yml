@@ -11,6 +11,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
+  statuses: read
 
 concurrency:
   group: sync-upstream
@@ -35,12 +37,25 @@ jobs:
           open=$(gh pr list --base idq --head main --state open --json number --jq '.[0].number')
           if [ -n "$open" ]; then
             echo "PR #$open già aperta, main è avanti di $ahead commit"
-            exit 0
-          fi
-          gh pr create --base idq --head main \
-            --title "Aggiornamento da docmost/docmost" \
-            --body "main è avanti di $ahead commit rispetto a idq.
+          else
+            gh pr create --base idq --head main \
+              --title "Aggiornamento da docmost/docmost" \
+              --body "main è avanti di $ahead commit rispetto a idq.
 
           Unire con **Create a merge commit**. Se ci sono conflitti, vedi la sezione \"Aggiornamenti da Docmost\" in .github/README.md.
 
           Dopo il merge **non** cancellare il branch main."
+          fi
+
+      # Le PR create dal GITHUB_TOKEN non fanno partire la CI: la lanciamo noi sulla testa di main.
+      - name: Lancia la CI sulla testa di main
+        run: |
+          ahead=$(gh api "repos/$GH_REPO/compare/idq...main" --jq .ahead_by)
+          [ "$ahead" -gt 0 ] || exit 0
+          sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          checked=$(gh api "repos/$GH_REPO/commits/$sha/status" --jq '[.statuses[] | select(.context == "docker-build")] | length')
+          if [ "$checked" -gt 0 ]; then
+            echo "CI già lanciata su $sha"
+          else
+            gh workflow run idq-ci.yml --ref idq -f sha="$sha"
+          fi

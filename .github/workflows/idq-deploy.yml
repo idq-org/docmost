@@ -1,0 +1,36 @@
+name: Deploy
+
+# A ogni push su idq aggiorna https://app.informaticidiquartiere.org.
+# La chiave DEPLOY_SSH_KEY sulla VPS può solo lanciare /srv/docmost/deploy.sh
+# (forced command in authorized_keys), che porta /srv/docmost/src a origin/idq
+# e ricostruisce i container. Secrets: DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS, DEPLOY_HOST.
+
+on:
+  push:
+    branches: [idq]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'idq-org/docmost'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Deploy sulla VPS
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o ServerAliveInterval=30 "root@$HOST"
