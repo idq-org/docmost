@@ -104,5 +104,5 @@ Le issue con l'etichetta [`idq`](https://github.com/idq-org/docmost/issues?q=is%
 1. [#8](https://github.com/idq-org/docmost/issues/8): link al codice sorgente nell'interfaccia, prima o insieme alla prima funzionalità
 2. [#5](https://github.com/idq-org/docmost/issues/5): MCP integrato, compatibile con i client dell'MCP di Docmost (prima le chiavi API, poi `/mcp`, poi OAuth)
 3. [#3](https://github.com/idq-org/docmost/issues/3): bacheca kanban dei task, con i materiali collegati
-4. [#6](https://github.com/idq-org/docmost/issues/6): diagrammi, con Draw.io sul nostro server e diagrammi creati anche da API e MCP
+4. [#12](https://github.com/idq-org/docmost/issues/12): scadenze e promemoria su task e pagine (si può fare anche in parallelo a #3)
 5. [#4](https://github.com/idq-org/docmost/issues/4): mappa dei soci in pixel art
