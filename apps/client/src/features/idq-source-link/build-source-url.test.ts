@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSourceUrl } from "./build-source-url";
+import { buildLicenseUrl, buildSourceUrl } from "./build-source-url";
 
 const BRANCH_URL = "https://github.com/idq-org/docmost/tree/idq";
 const FULL_SHA = "62519940a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -35,5 +35,23 @@ describe("buildSourceUrl", () => {
     ["a query string", "6251994?x=1"],
   ])("falls back to the idq branch for %s", (_label, value) => {
     expect(buildSourceUrl(value)).toBe(BRANCH_URL);
+  });
+});
+
+describe("buildLicenseUrl", () => {
+  it("links to LICENSE at the exact commit", () => {
+    expect(buildLicenseUrl(FULL_SHA)).toBe(
+      `https://github.com/idq-org/docmost/blob/${FULL_SHA}/LICENSE`,
+    );
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["an empty string", ""],
+    ["a non-hex value", "../../evil"],
+  ])("falls back to LICENSE on the idq branch for %s", (_label, value) => {
+    expect(buildLicenseUrl(value)).toBe(
+      "https://github.com/idq-org/docmost/blob/idq/LICENSE",
+    );
   });
 });
