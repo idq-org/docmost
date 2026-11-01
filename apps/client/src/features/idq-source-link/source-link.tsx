@@ -1,15 +1,11 @@
 import { Anchor, Text } from "@mantine/core";
 import { buildLicenseUrl, buildSourceUrl } from "./build-source-url";
 
-type SourceLinkProps = {
-  commit?: string | null;
-};
-
-export function SourceLink({ commit }: SourceLinkProps) {
+export function SourceLink() {
   return (
     <Text size="xs" c="dimmed" ta="center" px="md" py="xs">
       <Anchor
-        href={buildSourceUrl(commit)}
+        href={buildSourceUrl(IDQ_SOURCE_COMMIT)}
         target="_blank"
         rel="noopener noreferrer"
         inherit
@@ -19,7 +15,7 @@ export function SourceLink({ commit }: SourceLinkProps) {
       {" · "}
       Based on Docmost, licensed under{" "}
       <Anchor
-        href={buildLicenseUrl(commit)}
+        href={buildLicenseUrl(IDQ_SOURCE_COMMIT)}
         target="_blank"
         rel="noopener noreferrer"
         inherit

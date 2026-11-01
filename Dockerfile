@@ -10,6 +10,10 @@ WORKDIR /app
 COPY . .
 
 RUN pnpm install --frozen-lockfile
+
+# After install on purpose: a changing ARG invalidates the layers below, not the install
+ARG IDQ_SOURCE_COMMIT=""
+ENV IDQ_SOURCE_COMMIT=$IDQ_SOURCE_COMMIT
 RUN pnpm build
 
 FROM base AS installer
