@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -14,12 +13,11 @@ import {
   Text,
   TextInput,
   Title,
-  Tooltip,
 } from "@mantine/core";
 import { modals } from "@mantine/modals";
-import { IconCheck, IconCopy, IconInfoCircle } from "@tabler/icons-react";
+import { IconInfoCircle } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import { CopyButton } from "@/components/common/copy-button.tsx";
+import CopyTextButton from "@/components/common/copy";
 import { getAppUrl } from "@/lib/config.ts";
 import useUserRole from "@/hooks/use-user-role.tsx";
 import {
@@ -32,27 +30,7 @@ import {
 import { IIdqApiKeyCreated } from "../services/idq-api-key-service";
 import "../i18n";
 
-function CopyIcon({ value }: { value: string }) {
-  const { t } = useTranslation();
-  return (
-    <CopyButton value={value} timeout={2000}>
-      {({ copied, copy }) => (
-        <Tooltip label={copied ? t("Copied") : t("Copy")} withArrow>
-          <ActionIcon
-            color={copied ? "teal" : "gray"}
-            variant="subtle"
-            onClick={copy}
-            aria-label={t("Copy")}
-          >
-            {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-          </ActionIcon>
-        </Tooltip>
-      )}
-    </CopyButton>
-  );
-}
-
-function CopyableCode({ value }: { value: string }) {
+function CopyableCode({ value, label }: { value: string; label: string }) {
   return (
     <Group gap="xs" wrap="nowrap" align="flex-start">
       <Code
@@ -61,7 +39,7 @@ function CopyableCode({ value }: { value: string }) {
       >
         {value}
       </Code>
-      <CopyIcon value={value} />
+      <CopyTextButton text={value} label={label} />
     </Group>
   );
 }
@@ -120,20 +98,20 @@ function McpSwitch() {
 
 function ConnectionHelp() {
   const { t } = useTranslation();
-  const mcpUrl = `${getAppUrl()}/mcp`;
+  const endpoint = getAppUrl() + "/mcp";
   const placeholder = t("<key>");
 
   return (
     <Stack gap="sm">
-      <div>
-        <Text size="sm" fw={500} mb={4}>
-          {t("MCP server URL")}
-        </Text>
-        <Group gap="xs">
-          <TextInput value={mcpUrl} readOnly style={{ flex: 1 }} />
-          <CopyIcon value={mcpUrl} />
-        </Group>
-      </div>
+      <TextInput
+        label={t("MCP server URL")}
+        value={endpoint}
+        readOnly
+        onFocus={(e) => e.currentTarget.select()}
+        rightSection={
+          <CopyTextButton text={endpoint} label={t("Copy MCP server URL")} />
+        }
+      />
 
       <Text size="sm" fw={500}>
         {t("How to connect")}
@@ -142,13 +120,15 @@ function ConnectionHelp() {
         {t("Claude Code")}
       </Text>
       <CopyableCode
-        value={`claude mcp add idq --transport http ${mcpUrl} --header "Authorization: Bearer ${placeholder}"`}
+        value={`claude mcp add idq --transport http ${endpoint} --header "Authorization: Bearer ${placeholder}"`}
+        label={t("Copy command")}
       />
       <Text size="sm" c="dimmed">
         {t("Claude Desktop, Cursor and other clients (via mcp-remote)")}
       </Text>
       <CopyableCode
-        value={`npx -y mcp-remote ${mcpUrl} --header "Authorization: Bearer ${placeholder}"`}
+        value={`npx -y mcp-remote ${endpoint} --header "Authorization: Bearer ${placeholder}"`}
+        label={t("Copy command")}
       />
       <Text size="xs" c="dimmed">
         {t("Replace {{placeholder}} with one of your API keys.", {
@@ -353,7 +333,9 @@ function ApiKeys() {
               "This is the only time the key is shown. Copy it now and keep it somewhere safe.",
             )}
           </Text>
-          {createdKey && <CopyableCode value={createdKey.key} />}
+          {createdKey && (
+            <CopyableCode value={createdKey.key} label={t("Copy API key")} />
+          )}
           <Group justify="flex-end">
             <Button onClick={() => setCreatedKey(null)}>{t("Done")}</Button>
           </Group>
