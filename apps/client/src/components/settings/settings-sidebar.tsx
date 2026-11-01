@@ -16,6 +16,7 @@ import {
   IconPlug,
   IconHistory,
   IconShieldCheck,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router-dom";
 import classes from "./settings.module.css";
@@ -45,6 +46,7 @@ import { mobileSidebarAtom } from "@/components/layouts/global/hooks/atoms/sideb
 import { useToggleSidebar } from "@/components/layouts/global/hooks/hooks/use-toggle-sidebar.ts";
 import { useSettingsNavigation } from "@/hooks/use-settings-navigation";
 import { useInstalledIntegrations } from "@/features/integration/queries/integration-query";
+import "@/features/idq-api-keys/i18n";
 
 type DataItem = {
   label: string;
@@ -82,6 +84,12 @@ const groupedData: DataGroup[] = [
         icon: IconPlug,
         path: "/settings/account/connections",
         requiresInstalledIntegration: true,
+      },
+      // IDQ: MCP e chiavi API personali (issue #5)
+      {
+        label: "IDQ MCP",
+        icon: IconPlugConnected,
+        path: "/settings/account/idq-mcp",
       },
     ],
   },

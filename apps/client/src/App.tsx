@@ -73,6 +73,9 @@ const WorkspaceApiKeys = lazyWithPrefetch(
   () => import("@/ee/api-key/pages/workspace-api-keys"),
 );
 const AiSettings = lazyWithPrefetch(() => import("@/ee/ai/pages/ai-settings.tsx"));
+const IdqMcpSettingsPage = lazyWithPrefetch(
+  () => import("@/features/idq-api-keys/pages/idq-mcp-settings-page.tsx"),
+);
 const BasePage = lazyWithPrefetch(() => import("@/ee/base/pages/base-page.tsx"));
 const AuditLogs = lazyWithPrefetch(() => import("@/ee/audit/pages/audit-logs.tsx"));
 const VerifiedPages = lazyWithPrefetch(
@@ -192,6 +195,7 @@ export default function App() {
               element={<UserApiKeys />}
             />
             <Route path={"account/connections"} element={<Connections />} />
+            <Route path={"account/idq-mcp"} element={<IdqMcpSettingsPage />} />
             <Route path={"workspace"} element={<WorkspaceSettings />} />
             <Route path={"members"} element={<WorkspaceMembers />} />
             <Route path={"api-keys"} element={<WorkspaceApiKeys />} />

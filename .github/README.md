@@ -1,6 +1,6 @@
 # Docmost — fork di Informatici di Quartiere
 
-Fork di [docmost/docmost](https://github.com/docmost/docmost) che IDQ usa per la knowledge base dell'associazione, consultabile anche da agenti via MCP. Il README originale del progetto è [`README.md`](../README.md).
+Fork di [docmost/docmost](https://github.com/docmost/docmost) che IDQ usa per la knowledge base dell'associazione, consultabile anche da agenti via MCP (vedi [MCP.md](MCP.md)). Il README originale del progetto è [`README.md`](../README.md).
 
 ## Branch
 
