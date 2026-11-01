@@ -7,7 +7,7 @@ type SourceLinkProps = {
 
 export function SourceLink({ commit }: SourceLinkProps) {
   return (
-    <Text size="xs" c="dimmed" ta="center">
+    <Text size="xs" c="dimmed" ta="center" px="md" py="xs">
       <Anchor
         href={buildSourceUrl(commit)}
         target="_blank"
