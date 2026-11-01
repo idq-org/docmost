@@ -4,6 +4,8 @@ Server MCP integrato nella nostra istanza di Docmost, **compatibile con i client
 
 ## Come si usa
 
+![La pagina Impostazioni → MCP di IDQ](images/idq-mcp-settings.png)
+
 1. Un amministratore lo attiva in *Impostazioni → MCP di IDQ → Attiva MCP*. Finché è spento, tutte le chiamate ricevono `403`.
 2. Ognuno crea la propria chiave nella stessa pagina. La chiave si vede una volta sola. Può scadere dopo 30 giorni, 90 giorni o un anno, oppure non scadere mai, e si può revocare in qualsiasi momento: da quel momento smette subito di funzionare.
 3. Si collega l'assistente.
