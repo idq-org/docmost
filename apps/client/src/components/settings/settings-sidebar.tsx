@@ -45,6 +45,7 @@ import { mobileSidebarAtom } from "@/components/layouts/global/hooks/atoms/sideb
 import { useToggleSidebar } from "@/components/layouts/global/hooks/hooks/use-toggle-sidebar.ts";
 import { useSettingsNavigation } from "@/hooks/use-settings-navigation";
 import { useInstalledIntegrations } from "@/features/integration/queries/integration-query";
+import { idqAccountSettingsItems } from "@/idq/settings-nav"; // IDQ: our menu items
 
 type DataItem = {
   label: string;
@@ -83,6 +84,7 @@ const groupedData: DataGroup[] = [
         path: "/settings/account/connections",
         requiresInstalledIntegration: true,
       },
+      ...idqAccountSettingsItems, // IDQ: our account settings
     ],
   },
   {
