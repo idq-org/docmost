@@ -6,7 +6,7 @@ export type IdqWorkspaceSettingsView = {
   idqMcpEnabled: boolean;
 };
 
-/** Impostazioni IDQ del workspace, separate da quelle di Docmost. */
+/** IDQ workspace settings, kept apart from Docmost's. */
 @Injectable()
 export class IdqSettingsService {
   constructor(@InjectKysely() private readonly db: IdqKyselyDB) {}

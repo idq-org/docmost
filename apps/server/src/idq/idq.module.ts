@@ -12,8 +12,9 @@ import { IdqMcpWriteLogService } from './mcp/idq-mcp-write-log.service';
 import { IdqAttachmentSearchService } from './mcp/idq-attachment-search.service';
 
 /**
- * Funzionalità di Informatici di Quartiere (fork AGPL di Docmost).
- * Scritte da zero: non usano niente delle cartelle Enterprise.
+ * Informatici di Quartiere features (AGPL fork of Docmost), written from
+ * scratch: nothing comes from the Enterprise folders. Every IDQ server
+ * feature registers here, so app.module.ts only imports this module.
  */
 @Module({
   controllers: [IdqApiKeyController, IdqSettingsController, IdqMcpController],

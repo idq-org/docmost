@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { InjectKysely } from 'nestjs-kysely';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { IdqKyselyDB } from '../database/idq-db.types';
@@ -13,6 +15,8 @@ import { isUserDisabled } from '../../common/helpers';
 
 export const IDQ_API_KEY_PREFIX = 'idq_';
 const MAX_ACTIVE_KEYS_PER_USER = 20;
+const LAST_USED_RESOLUTION_MS = 5 * 60 * 1000;
+const DISABLED_USERS_SWEEP_MS = 5 * 60 * 1000;
 
 export type IdqApiKeySummary = {
   id: string;
@@ -39,12 +43,15 @@ export function generateApiKey(): string {
 
 @Injectable()
 export class IdqApiKeyService {
+  private readonly logger = new Logger('IdqApiKeyService');
+
   constructor(
     @InjectKysely() private readonly db: IdqKyselyDB,
     private readonly userRepo: UserRepo,
     private readonly workspaceRepo: WorkspaceRepo,
   ) {}
 
+  /** Lists the user's keys that aren't revoked, expired ones included. */
   async list(userId: string, workspaceId: string): Promise<IdqApiKeySummary[]> {
     return this.db
       .selectFrom('idqApiKeys')
@@ -56,7 +63,7 @@ export class IdqApiKeyService {
       .execute() as unknown as Promise<IdqApiKeySummary[]>;
   }
 
-  /** Crea una chiave e la restituisce in chiaro: è l'unica volta. */
+  /** Creates a key and returns it in clear text: this is the only time. */
   async create(
     userId: string,
     workspaceId: string,
@@ -67,12 +74,16 @@ export class IdqApiKeyService {
       throw new BadRequestException('Expiration date must be in the future');
     }
 
+    // Expired keys no longer work, so they don't count toward the limit.
     const { count } = await this.db
       .selectFrom('idqApiKeys')
       .select((eb) => eb.fn.countAll<number>().as('count'))
       .where('userId', '=', userId)
       .where('workspaceId', '=', workspaceId)
       .where('revokedAt', 'is', null)
+      .where((eb) =>
+        eb.or([eb('expiresAt', 'is', null), eb('expiresAt', '>', new Date())]),
+      )
       .executeTakeFirst();
     if (Number(count) >= MAX_ACTIVE_KEYS_PER_USER) {
       throw new BadRequestException(
@@ -119,7 +130,7 @@ export class IdqApiKeyService {
     }
   }
 
-  /** Revoca tutte le chiavi di un utente (per esempio quando viene disattivato). */
+  /** Revokes all the keys of a user. */
   async revokeAllForUser(userId: string, workspaceId: string): Promise<void> {
     await this.db
       .updateTable('idqApiKeys')
@@ -131,8 +142,44 @@ export class IdqApiKeyService {
   }
 
   /**
-   * Verifica una chiave a ogni richiesta: niente cache, così una chiave
-   * revocata smette subito di funzionare. Restituisce null se non è valida.
+   * Revokes the keys of deactivated or deleted users, as core does with their
+   * sessions, so the keys don't work again if the user is reactivated.
+   * `authenticate` already refuses them while the user is disabled; this
+   * sweep makes the revocation permanent without changing Docmost's code.
+   */
+  @Interval('idq-api-key-disabled-users', DISABLED_USERS_SWEEP_MS)
+  async revokeKeysOfDisabledUsers(): Promise<void> {
+    try {
+      const result = await this.db
+        .updateTable('idqApiKeys')
+        .set({ revokedAt: new Date() })
+        .where('revokedAt', 'is', null)
+        .where('userId', 'in', (eb) =>
+          eb
+            .selectFrom('users')
+            .select('users.id')
+            .where((w) =>
+              w.or([
+                w('users.deactivatedAt', 'is not', null),
+                w('users.deletedAt', 'is not', null),
+              ]),
+            ),
+        )
+        .executeTakeFirst();
+      const revoked = Number(result.numUpdatedRows ?? 0);
+      if (revoked > 0) {
+        this.logger.log(`Revoked ${revoked} API key(s) of disabled users`);
+      }
+    } catch (err) {
+      this.logger.error(
+        `Failed to revoke API keys of disabled users: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Checks a key on every request, with no cache, so a revoked key stops
+   * working immediately. Returns null if the key isn't valid.
    */
   async authenticate(
     key: string | undefined,
@@ -145,7 +192,7 @@ export class IdqApiKeyService {
     const keyHash = hashApiKey(key);
     const row = await this.db
       .selectFrom('idqApiKeys')
-      .select(['id', 'userId', 'workspaceId', 'keyHash', 'expiresAt'])
+      .select(['id', 'userId', 'workspaceId', 'keyHash', 'expiresAt', 'lastUsedAt'])
       .where('keyHash', '=', keyHash)
       .where('revokedAt', 'is', null)
       .executeTakeFirst();
@@ -167,17 +214,25 @@ export class IdqApiKeyService {
       this.userRepo.findById(row.userId, row.workspaceId),
       this.workspaceRepo.findById(row.workspaceId),
     ]);
-    if (!user || isUserDisabled(user) || !workspace) {
+    if (!workspace) {
+      return null;
+    }
+    if (!user || isUserDisabled(user)) {
+      await this.revokeAllForUser(row.userId, row.workspaceId);
       return null;
     }
 
-    // Non blocca la richiesta: è solo informativo.
-    this.db
-      .updateTable('idqApiKeys')
-      .set({ lastUsedAt: new Date() })
-      .where('id', '=', row.id)
-      .execute()
-      .catch(() => undefined);
+    // Informational only, so it doesn't block the request, and it's written
+    // at most once every few minutes to avoid an UPDATE on every call.
+    const lastUsedAt = row.lastUsedAt ? new Date(row.lastUsedAt).getTime() : 0;
+    if (Date.now() - lastUsedAt > LAST_USED_RESOLUTION_MS) {
+      this.db
+        .updateTable('idqApiKeys')
+        .set({ lastUsedAt: new Date() })
+        .where('id', '=', row.id)
+        .execute()
+        .catch(() => undefined);
+    }
 
     return { apiKeyId: row.id, user, workspace };
   }

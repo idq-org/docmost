@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { FileMigrationProvider, Migrator } from 'kysely';
+import { FileMigrationProvider, Migrator, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { MigrationService } from '@docmost/db/services/migration.service';
@@ -24,10 +24,9 @@ export function createIdqMigrator(db: KyselyDB): Migrator {
 }
 
 /**
- * Applica le migrazioni IDQ all'avvio, dopo quelle di Docmost (le nostre
- * tabelle hanno chiavi esterne verso le loro). Hanno una tabella di
- * tracciamento separata: le migrazioni che arrivano da upstream non devono
- * mai trovarsi «in mezzo» alle nostre.
+ * Applies the IDQ migrations at startup, after Docmost's (our tables have
+ * foreign keys to theirs). They have their own tracking table, so migrations
+ * coming from upstream never end up in the middle of ours.
  */
 @Injectable()
 export class IdqMigrationService implements OnApplicationBootstrap {
@@ -39,10 +38,19 @@ export class IdqMigrationService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    if (this.environmentService.getNodeEnv() === 'production') {
-      // Idempotente: se DatabaseModule le ha già applicate non fa niente.
-      // (MigrationService non è esportato da DatabaseModule: lo creiamo noi.)
+    const production = this.environmentService.getNodeEnv() === 'production';
+    if (production) {
+      // Idempotent: does nothing if DatabaseModule already applied them.
+      // (DatabaseModule doesn't export MigrationService, so we create it.)
       await new MigrationService(this.db).migrateToLatest();
+    } else if (!(await this.coreSchemaExists())) {
+      // In development Docmost's migrations are run by hand
+      // (pnpm --filter server migration:latest), and ours need their tables.
+      this.logger.warn(
+        'Docmost tables not found: run the Docmost migrations, then restart ' +
+          'to apply the IDQ migrations.',
+      );
+      return;
     }
 
     const { error, results } = await createIdqMigrator(
@@ -59,9 +67,16 @@ export class IdqMigrationService implements OnApplicationBootstrap {
 
     if (error) {
       this.logger.error(error);
-      if (this.environmentService.getNodeEnv() === 'production') {
+      if (production) {
         process.exit(1);
       }
     }
+  }
+
+  private async coreSchemaExists(): Promise<boolean> {
+    const { rows } = await sql<{
+      table: string | null;
+    }>`select to_regclass('workspaces')::text as table`.execute(this.db);
+    return Boolean(rows[0]?.table);
   }
 }

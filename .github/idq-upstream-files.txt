@@ -6,3 +6,7 @@
 # isn't listed here, and warns about listed files that are no longer modified.
 #
 # Format: <path>  # <reason>
+
+apps/server/src/app.module.ts  # imports IdqModule, which registers every IDQ server feature
+apps/client/src/App.tsx  # spreads idqSettingsRoutes (apps/client/src/idq/routes.tsx)
+apps/client/src/components/settings/settings-sidebar.tsx  # spreads idqAccountSettingsItems (apps/client/src/idq/settings-nav.ts)

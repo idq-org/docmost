@@ -4,7 +4,7 @@ import { IdqKyselyDB } from '../database/idq-db.types';
 
 const MAX_LOGGED_STRING = 500;
 
-/** Accorcia i testi lunghi (contenuti di pagine e commenti) prima di salvarli. */
+/** Shortens long strings (page and comment content) before storing them. */
 export function summarizeArguments(args: unknown): unknown {
   if (typeof args === 'string') {
     return args.length > MAX_LOGGED_STRING
@@ -20,7 +20,7 @@ export function summarizeArguments(args: unknown): unknown {
   return args;
 }
 
-/** Registro delle operazioni di scrittura fatte via MCP. */
+/** Log of the write operations done through MCP. */
 @Injectable()
 export class IdqMcpWriteLogService {
   private readonly logger = new Logger('IdqMcpWriteLog');

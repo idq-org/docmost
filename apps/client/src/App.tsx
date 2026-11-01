@@ -7,6 +7,7 @@ import { lazyWithPrefetch, prefetchLazyComponents } from "@/lib/lazy-prefetch.ts
 import { useTranslation } from "react-i18next";
 import { useRedirectToCloudSelect } from "@/ee/hooks/use-redirect-to-cloud-select.tsx";
 import { useTrackOrigin } from "@/hooks/use-track-origin";
+import { idqSettingsRoutes } from "@/idq/routes"; // IDQ: our routes
 
 
 const SetupWorkspace = lazyWithPrefetch(() => import("@/pages/auth/setup-workspace.tsx"));
@@ -73,9 +74,6 @@ const WorkspaceApiKeys = lazyWithPrefetch(
   () => import("@/ee/api-key/pages/workspace-api-keys"),
 );
 const AiSettings = lazyWithPrefetch(() => import("@/ee/ai/pages/ai-settings.tsx"));
-const IdqMcpSettingsPage = lazyWithPrefetch(
-  () => import("@/features/idq-api-keys/pages/idq-mcp-settings-page.tsx"),
-);
 const BasePage = lazyWithPrefetch(() => import("@/ee/base/pages/base-page.tsx"));
 const AuditLogs = lazyWithPrefetch(() => import("@/ee/audit/pages/audit-logs.tsx"));
 const VerifiedPages = lazyWithPrefetch(
@@ -195,7 +193,7 @@ export default function App() {
               element={<UserApiKeys />}
             />
             <Route path={"account/connections"} element={<Connections />} />
-            <Route path={"account/idq-mcp"} element={<IdqMcpSettingsPage />} />
+            {idqSettingsRoutes /* IDQ: our settings routes */}
             <Route path={"workspace"} element={<WorkspaceSettings />} />
             <Route path={"members"} element={<WorkspaceMembers />} />
             <Route path={"api-keys"} element={<WorkspaceApiKeys />} />

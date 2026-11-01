@@ -1,7 +1,7 @@
 import { type Kysely, sql } from 'kysely';
 
-// Tabelle dell'MCP di IDQ. Le migrazioni IDQ hanno una tabella di tracciamento
-// separata (idq_kysely_migration), così non si mescolano con quelle di Docmost.
+// IDQ MCP tables. IDQ migrations have their own tracking table
+// (idq_kysely_migration), so they never mix with Docmost's.
 
 export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
@@ -16,9 +16,9 @@ export async function up(db: Kysely<any>): Promise<void> {
       col.notNull().references('users.id').onDelete('cascade'),
     )
     .addColumn('name', 'varchar(100)', (col) => col.notNull())
-    // sha256 della chiave: la chiave in chiaro non viene mai salvata
+    // sha256 of the key: the clear-text key is never stored
     .addColumn('key_hash', 'varchar(64)', (col) => col.notNull().unique())
-    // primi caratteri della chiave, per riconoscerla nell'elenco
+    // first characters of the key, to recognize it in the list
     .addColumn('key_hint', 'varchar(20)', (col) => col.notNull())
     .addColumn('expires_at', 'timestamptz')
     .addColumn('last_used_at', 'timestamptz')

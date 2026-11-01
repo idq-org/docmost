@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ActionIcon,
   Alert,
+  Badge,
   Button,
   Code,
   Group,
@@ -305,7 +306,14 @@ function ApiKeys() {
                     {formatDate(key.lastUsedAt, i18n.language, never)}
                   </Table.Td>
                   <Table.Td>
-                    {formatDate(key.expiresAt, i18n.language, never)}
+                    {key.expiresAt &&
+                    new Date(key.expiresAt).getTime() <= Date.now() ? (
+                      <Badge color="gray" variant="light">
+                        {t("Expired")}
+                      </Badge>
+                    ) : (
+                      formatDate(key.expiresAt, i18n.language, never)
+                    )}
                   </Table.Td>
                   <Table.Td>
                     <Button

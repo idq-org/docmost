@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '@nestjs-labs/nestjs-ioredis';
 
-export const MCP_LIMIT_PER_KEY = 120; // richieste al minuto per chiave
-export const MCP_LIMIT_PER_USER = 240; // richieste al minuto per utente (tutte le chiavi)
+export const MCP_LIMIT_PER_KEY = 120; // requests per minute per key
+export const MCP_LIMIT_PER_USER = 240; // requests per minute per user (all keys)
 const WINDOW_SECONDS = 60;
 
 export type RateLimitResult = { allowed: boolean; retryAfter: number };
 
 /**
- * Rate limit a finestra fissa su Redis, per chiave e per utente. Se Redis
- * non risponde la richiesta passa: meglio un limite saltato che l'MCP giù.
+ * Fixed-window rate limit on Redis, per key and per user. If Redis doesn't
+ * answer, the request goes through: better a skipped limit than MCP down.
  */
 @Injectable()
 export class IdqMcpRateLimitService {

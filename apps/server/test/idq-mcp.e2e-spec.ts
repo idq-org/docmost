@@ -1,12 +1,12 @@
 /**
- * Test end-to-end dell'MCP di IDQ (issue #5), contro un'istanza che gira.
+ * End-to-end test of the IDQ MCP (issue #5), against a running instance.
  *
- * Serve un database nuovo (il test fa il setup del workspace):
+ * It needs a new database (the test sets up the workspace):
  *   IDQ_E2E_URL=http://localhost:3300 \
  *   IDQ_E2E_DATABASE_URL=postgresql://docmost:docmost@localhost:55432/docmost \
  *   npx jest --config test/jest-e2e.json --runInBand idq-mcp
  *
- * Senza IDQ_E2E_URL il test viene saltato.
+ * Without IDQ_E2E_URL the test is skipped.
  */
 import * as postgres from 'postgres';
 
@@ -38,7 +38,7 @@ const EXPECTED_TOOLS = [
 ].sort();
 
 const PASSWORD = 'idq-e2e-password-123';
-const SECRET_WORD = 'zafferanosegreto';
+const SECRET_WORD = 'saffronsecret';
 
 type Session = { cookie: string };
 
@@ -109,13 +109,21 @@ async function callTool(key: string, name: string, args: object = {}) {
     arguments: args,
   });
   expect(status).toBe(200);
+  // Invalid arguments can come back as a JSON-RPC error instead of a result.
+  if (body.error) {
+    return {
+      isError: true,
+      data: undefined,
+      text: String(body.error.message ?? ''),
+    };
+  }
   const result = body.result;
   const text = result?.content?.[0]?.text ?? '';
   let parsed: any = text;
   try {
     parsed = JSON.parse(text);
   } catch {
-    /* testo semplice */
+    /* plain text */
   }
   return { isError: Boolean(result?.isError), data: parsed, text };
 }
@@ -124,20 +132,51 @@ describeE2E('IDQ MCP (e2e)', () => {
   let sql: postgres.Sql;
   let admin: Session;
   let member: Session;
+  let reader: Session;
   let memberKey: string;
   let memberKeyId: string;
+  let readerKey: string;
+  let readerKeyId: string;
   let adminKey: string;
   let memberId: string;
+  let readerId: string;
+  let workspaceId: string;
+  let adminId: string;
   let sharedSpaceId: string;
   let secretSpaceId: string;
   let secretPageId: string;
   let secretPageSlugId: string;
   let sharedPageId: string;
 
+  async function invite(email: string, name: string): Promise<Session> {
+    await api(admin, '/workspace/invites/create', {
+      emails: [email],
+      role: 'member',
+    });
+    const [row] = await sql`
+      select id, token from workspace_invitations where email = ${email}`;
+    const accepted = await api(null, '/workspace/invites/accept', {
+      invitationId: row.id,
+      token: row.token,
+      name,
+      password: PASSWORD,
+    });
+    expect(accepted.status).toBe(200);
+    return login(email);
+  }
+
+  async function addAttachment(pageId: string, spaceId: string, name: string) {
+    await sql`
+      insert into attachments (file_name, file_path, file_size, file_ext, mime_type, type,
+        creator_id, page_id, space_id, workspace_id)
+      values (${name}, ${'test/' + name}, 1234, '.pdf', 'application/pdf', 'file',
+        ${adminId}, ${pageId}, ${spaceId}, ${workspaceId})`;
+  }
+
   beforeAll(async () => {
     sql = postgres(DB_URL!, { max: 2, onnotice: () => {} });
 
-    // Workspace e admin
+    // Workspace and admin
     const setup = await api(null, '/auth/setup', {
       workspaceName: 'IDQ test',
       name: 'Admin',
@@ -150,28 +189,20 @@ describeE2E('IDQ MCP (e2e)', () => {
       );
     }
     admin = await login('admin@idq.test');
+    [{ id: workspaceId }] = await sql`select id from workspaces limit 1`;
+    [{ id: adminId }] =
+      await sql`select id from users where email = 'admin@idq.test'`;
 
-    // Socio invitato
-    await api(admin, '/workspace/invites/create', {
-      emails: ['socio@idq.test'],
-      role: 'member',
-    });
-    const [invite] = await sql`
-      select id, token from workspace_invitations where email = 'socio@idq.test'`;
-    const accepted = await api(null, '/workspace/invites/accept', {
-      invitationId: invite.id,
-      token: invite.token,
-      name: 'Socio',
-      password: PASSWORD,
-    });
-    expect(accepted.status).toBe(200);
-    member = await login('socio@idq.test');
+    // Two invited members: one can write in the shared space, one can only read
+    member = await invite('member@idq.test', 'Member');
     memberId = (await api(member, '/users/me')).data.user.id;
+    reader = await invite('reader@idq.test', 'Reader');
+    readerId = (await api(reader, '/users/me')).data.user.id;
 
-    // Spazio condiviso (il socio è writer) e spazio riservato (solo admin)
+    // Shared space (member is writer, reader is reader) and restricted space (admin only)
     const shared = await api(admin, '/spaces/create', {
-      name: 'Comune',
-      slug: 'comune',
+      name: 'Shared',
+      slug: 'shared',
     });
     sharedSpaceId = shared.data.id;
     await api(admin, '/spaces/members/add', {
@@ -180,16 +211,22 @@ describeE2E('IDQ MCP (e2e)', () => {
       groupIds: [],
       role: 'writer',
     });
+    await api(admin, '/spaces/members/add', {
+      spaceId: sharedSpaceId,
+      userIds: [readerId],
+      groupIds: [],
+      role: 'reader',
+    });
     const secret = await api(admin, '/spaces/create', {
-      name: 'Riservato',
-      slug: 'riservato',
+      name: 'Restricted',
+      slug: 'restricted',
     });
     secretSpaceId = secret.data.id;
 
     const secretPage = await api(admin, '/pages/create', {
       spaceId: secretSpaceId,
-      title: `Verbale ${SECRET_WORD}`,
-      content: `Contenuto riservato: ${SECRET_WORD}`,
+      title: `Minutes ${SECRET_WORD}`,
+      content: `Restricted content: ${SECRET_WORD}`,
       format: 'markdown',
     });
     secretPageId = secretPage.data.id;
@@ -201,7 +238,7 @@ describeE2E('IDQ MCP (e2e)', () => {
         content: [
           {
             type: 'paragraph',
-            content: [{ type: 'text', text: `commento ${SECRET_WORD}` }],
+            content: [{ type: 'text', text: `comment ${SECRET_WORD}` }],
           },
         ],
       }),
@@ -210,32 +247,33 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     const sharedPage = await api(admin, '/pages/create', {
       spaceId: sharedSpaceId,
-      title: 'Pagina comune',
-      content: 'Benvenuti',
+      title: 'Shared page',
+      content: 'Welcome',
       format: 'markdown',
     });
     sharedPageId = sharedPage.data.id;
 
-    // Allegati: uno nello spazio riservato e uno in quello comune
-    const [ws] = await sql`select id from workspaces limit 1`;
-    const [adminRow] =
-      await sql`select id from users where email = 'admin@idq.test'`;
-    for (const [pageId, spaceId, name] of [
-      [secretPageId, secretSpaceId, `bilancio-${SECRET_WORD}.pdf`],
-      [sharedPageId, sharedSpaceId, `bilancio-pubblico.pdf`],
-    ]) {
-      await sql`
-        insert into attachments (file_name, file_path, file_size, file_ext, mime_type, type,
-          creator_id, page_id, space_id, workspace_id)
-        values (${name}, ${'test/' + name}, 1234, '.pdf', 'application/pdf', 'file',
-          ${adminRow.id}, ${pageId}, ${spaceId}, ${ws.id})`;
-    }
+    // Attachments: one in the restricted space, one in the shared space, and
+    // one on a restricted page whose space_id copy points to the shared space
+    // (stale data must not leak).
+    await addAttachment(secretPageId, secretSpaceId, `budget-${SECRET_WORD}.pdf`);
+    await addAttachment(sharedPageId, sharedSpaceId, 'budget-public.pdf');
+    await addAttachment(
+      secretPageId,
+      sharedSpaceId,
+      `budget-stale-${SECRET_WORD}.pdf`,
+    );
 
     const created = await api(member, '/idq/api-keys/create', {
       name: 'test',
     });
     memberKey = created.data.key;
     memberKeyId = created.data.id;
+    const readerCreated = await api(reader, '/idq/api-keys/create', {
+      name: 'reader',
+    });
+    readerKey = readerCreated.data.key;
+    readerKeyId = readerCreated.data.id;
     adminKey = (await api(admin, '/idq/api-keys/create', { name: 'admin' }))
       .data.key;
   }, 60_000);
@@ -277,6 +315,25 @@ describeE2E('IDQ MCP (e2e)', () => {
       });
       expect(res.status).toBe(401);
     });
+
+    it('rejects a blank key name', async () => {
+      const res = await api(member, '/idq/api-keys/create', { name: '   ' });
+      expect(res.status).toBe(400);
+    });
+
+    it('expired keys do not count toward the 20-key limit', async () => {
+      const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      for (let i = 0; i < 20; i++) {
+        await sql`
+          insert into idq_api_keys (workspace_id, user_id, name, key_hash, key_hint, expires_at)
+          values (${workspaceId}, ${readerId}, ${'expired ' + i},
+            ${'expired-hash-' + i}, 'idq_xxxxxx', ${past})`;
+      }
+      const res = await api(reader, '/idq/api-keys/create', { name: 'new' });
+      expect(res.status).toBe(200);
+      await api(reader, '/idq/api-keys/revoke', { id: res.data.id });
+      await sql`delete from idq_api_keys where key_hash like 'expired-hash-%'`;
+    });
   });
 
   describe('protocol', () => {
@@ -297,10 +354,10 @@ describeE2E('IDQ MCP (e2e)', () => {
     });
   });
 
-  describe('a member who cannot see a reserved space', () => {
+  describe('a member who cannot see a restricted space', () => {
     it('get_current_user returns the key owner', async () => {
       const { data } = await callTool(memberKey, 'get_current_user');
-      expect(data.user.email).toBe('socio@idq.test');
+      expect(data.user.email).toBe('member@idq.test');
     });
 
     it('list_spaces does not include it', async () => {
@@ -371,21 +428,27 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect(read.text).not.toContain(SECRET_WORD);
       const write = await callTool(memberKey, 'create_comment', {
         page_id: secretPageId,
-        markdown: 'ciao',
+        markdown: 'hello',
       });
       expect(write.isError).toBe(true);
     });
 
     it('search_attachments does not return its files', async () => {
       const r = await callTool(memberKey, 'search_attachments', {
-        query: 'bilancio',
+        query: 'budget',
       });
       const names = r.data.items.map((a: any) => a.fileName);
-      expect(names).toContain('bilancio-pubblico.pdf');
+      expect(names).toContain('budget-public.pdf');
       expect(names.join()).not.toContain(SECRET_WORD);
 
+      const inShared = await callTool(memberKey, 'search_attachments', {
+        query: 'budget',
+        space_id: sharedSpaceId,
+      });
+      expect(JSON.stringify(inShared.data)).not.toContain(SECRET_WORD);
+
       const inSpace = await callTool(memberKey, 'search_attachments', {
-        query: 'bilancio',
+        query: 'budget',
         space_id: secretSpaceId,
       });
       expect(inSpace.isError).toBe(true);
@@ -418,7 +481,7 @@ describeE2E('IDQ MCP (e2e)', () => {
           'move_page_to_space',
           { page_id: secretPageId, space_id: sharedSpaceId },
         ],
-        ['update_space', { space_id: secretSpaceId, name: 'Rinominato' }],
+        ['update_space', { space_id: secretSpaceId, name: 'Renamed' }],
       ];
       for (const [tool, args] of attempts) {
         const r = await callTool(memberKey, tool, args);
@@ -428,7 +491,7 @@ describeE2E('IDQ MCP (e2e)', () => {
 
       const [page] = await sql`
         select title, space_id, deleted_at from pages where id = ${secretPageId}`;
-      expect(page.title).toBe(`Verbale ${SECRET_WORD}`);
+      expect(page.title).toBe(`Minutes ${SECRET_WORD}`);
       expect(page.space_id).toBe(secretSpaceId);
       const [{ count }] = await sql`
         select count(*)::int as count from pages where space_id = ${secretSpaceId}`;
@@ -437,8 +500,8 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     it('cannot create spaces as a plain member', async () => {
       const r = await callTool(memberKey, 'create_space', {
-        name: 'Nuovo',
-        slug: 'nuovo',
+        name: 'New',
+        slug: 'new',
       });
       expect(r.isError).toBe(true);
     });
@@ -450,21 +513,59 @@ describeE2E('IDQ MCP (e2e)', () => {
     });
   });
 
+  describe('a member with a read-only role', () => {
+    it('can read the shared space', async () => {
+      const r = await callTool(readerKey, 'get_page', { page_id: sharedPageId });
+      expect(r.isError).toBe(false);
+      expect(r.data.permissions.canEdit).toBe(false);
+    });
+
+    it('cannot write anything in it', async () => {
+      const attempts: [string, object][] = [
+        ['create_page', { space_id: sharedSpaceId, title: 'x' }],
+        [
+          'create_page',
+          { space_id: sharedSpaceId, title: 'x', parent_page_id: sharedPageId },
+        ],
+        ['update_page', { page_id: sharedPageId, title: 'x' }],
+        ['update_page', { page_id: sharedPageId, markdown: 'x' }],
+        ['duplicate_page', { page_id: sharedPageId }],
+        ['move_page', { page_id: sharedPageId, parent_page_id: null }],
+        ['create_comment', { page_id: sharedPageId, markdown: 'x' }],
+        ['update_space', { space_id: sharedSpaceId, name: 'Renamed' }],
+      ];
+      for (const [tool, args] of attempts) {
+        const r = await callTool(readerKey, tool, args);
+        if (!r.isError) throw new Error(`${tool} should fail: ${r.text}`);
+      }
+
+      const [page] = await sql`
+        select title from pages where id = ${sharedPageId}`;
+      expect(page.title).toBe('Shared page');
+      const [{ count }] = await sql`
+        select count(*)::int as count from pages where space_id = ${sharedSpaceId}`;
+      expect(count).toBe(1);
+      const [{ comments }] = await sql`
+        select count(*)::int as comments from comments where page_id = ${sharedPageId}`;
+      expect(comments).toBe(0);
+    });
+  });
+
   describe('pages in Markdown', () => {
     const markdown = [
-      '# Titolo',
+      '# Title',
       '',
-      '## Sottotitolo',
+      '## Subtitle',
       '',
-      '- uno',
-      '- due',
+      '- one',
+      '- two',
       '',
-      '1. primo',
-      '2. secondo',
+      '1. first',
+      '2. second',
       '',
-      '| Nome | Ruolo |',
+      '| Name | Role |',
       '| --- | --- |',
-      '| Ada | socia |',
+      '| Ada | member |',
       '',
       '```mermaid',
       'graph TD',
@@ -482,7 +583,7 @@ describeE2E('IDQ MCP (e2e)', () => {
       });
       expect(r.isError).toBe(false);
       pageId = r.data.id;
-      expect(r.data.url).toContain('/s/comune/p/markdown-');
+      expect(r.data.url).toContain('/s/shared/p/markdown-');
 
       const [row] = await sql`select content from pages where id = ${pageId}`;
       const types = new Set<string>();
@@ -508,11 +609,11 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     it('get_page returns the same structure as Markdown', async () => {
       const r = await callTool(memberKey, 'get_page', { page_id: pageId });
-      expect(r.data.content).toMatch(/^# Titolo/m);
-      expect(r.data.content).toMatch(/^## Sottotitolo/m);
-      expect(r.data.content).toMatch(/^[-*] uno/m);
-      expect(r.data.content).toMatch(/^1\. primo/m);
-      expect(r.data.content).toMatch(/\|\s*Ada\s*\|\s*socia\s*\|/);
+      expect(r.data.content).toMatch(/^# Title/m);
+      expect(r.data.content).toMatch(/^## Subtitle/m);
+      expect(r.data.content).toMatch(/^[-*] one/m);
+      expect(r.data.content).toMatch(/^1\. first/m);
+      expect(r.data.content).toMatch(/\|\s*Ada\s*\|\s*member\s*\|/);
       expect(r.data.content).toContain('```mermaid');
       expect(r.data.permissions.canEdit).toBe(true);
     });
@@ -521,20 +622,30 @@ describeE2E('IDQ MCP (e2e)', () => {
       const replaced = await callTool(memberKey, 'update_page', {
         page_id: pageId,
         title: 'Markdown 2',
-        markdown: 'Nuovo testo',
+        markdown: 'New text',
       });
       expect(replaced.isError).toBe(false);
       expect(replaced.data.title).toBe('Markdown 2');
 
       await callTool(memberKey, 'update_page', {
         page_id: pageId,
-        markdown: 'Aggiunta',
+        markdown: 'Addition',
         operation: 'append',
       });
       const r = await callTool(memberKey, 'get_page', { page_id: pageId });
-      expect(r.data.content).toContain('Nuovo testo');
-      expect(r.data.content).toContain('Aggiunta');
-      expect(r.data.content).not.toContain('Sottotitolo');
+      expect(r.data.content).toContain('New text');
+      expect(r.data.content).toContain('Addition');
+      expect(r.data.content).not.toContain('Subtitle');
+    });
+
+    it('update_page rejects empty Markdown instead of ignoring it', async () => {
+      const r = await callTool(memberKey, 'update_page', {
+        page_id: pageId,
+        markdown: '',
+      });
+      expect(r.isError).toBe(true);
+      const page = await callTool(memberKey, 'get_page', { page_id: pageId });
+      expect(page.data.content).toContain('New text');
     });
 
     it('moves, duplicates and lists child pages', async () => {
@@ -560,18 +671,30 @@ describeE2E('IDQ MCP (e2e)', () => {
     it('comments in Markdown', async () => {
       const created = await callTool(memberKey, 'create_comment', {
         page_id: pageId,
-        markdown: 'Un **commento**',
+        markdown: 'A **comment**',
       });
       expect(created.isError).toBe(false);
       const updated = await callTool(memberKey, 'update_comment', {
         comment_id: created.data.id,
-        markdown: 'Commento corretto',
+        markdown: 'Corrected comment',
       });
       expect(updated.isError).toBe(false);
       const list = await callTool(memberKey, 'get_comments', {
         page_id: pageId,
       });
-      expect(list.data.items[0].content).toContain('Commento corretto');
+      expect(list.data.items[0].content).toContain('Corrected comment');
+    });
+
+    it('comments refuse what the web comment editor cannot show', async () => {
+      const r = await callTool(memberKey, 'create_comment', {
+        page_id: pageId,
+        markdown: '| Name | Role |\n| --- | --- |\n| Ada | member |',
+      });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain('table');
+      const [{ count }] = await sql`
+        select count(*)::int as count from comments where page_id = ${pageId}`;
+      expect(count).toBe(1);
     });
   });
 
@@ -596,6 +719,24 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect((await mcp(memberKey, 'tools/list')).status).toBe(401);
       const list = await api(member, '/idq/api-keys');
       expect(list.data.map((k: any) => k.id)).not.toContain(memberKeyId);
+    });
+
+    it('deactivating a member revokes their keys for good', async () => {
+      expect((await mcp(readerKey, 'tools/list')).status).toBe(200);
+      const off = await api(admin, '/workspace/members/deactivate', {
+        userId: readerId,
+      });
+      expect(off.status).toBe(200);
+      expect((await mcp(readerKey, 'tools/list')).status).toBe(401);
+
+      const on = await api(admin, '/workspace/members/activate', {
+        userId: readerId,
+      });
+      expect(on.status).toBe(200);
+      expect((await mcp(readerKey, 'tools/list')).status).toBe(401);
+      const [key] = await sql`
+        select revoked_at from idq_api_keys where id = ${readerKeyId}`;
+      expect(key.revoked_at).not.toBeNull();
     });
 
     it('disabling MCP blocks every key', async () => {

@@ -30,8 +30,8 @@ const SERVER_INSTRUCTIONS =
   'to read one.';
 
 /**
- * Crea un server MCP per ogni richiesta, legato all'utente della chiave.
- * Gli strumenti chiudono sul principal: non c'è stato condiviso tra utenti.
+ * Creates one MCP server per request, bound to the key's user. The tools
+ * close over the principal, so no state is shared between users.
  */
 @Injectable()
 export class IdqMcpService implements OnModuleDestroy {
@@ -49,7 +49,7 @@ export class IdqMcpService implements OnModuleDestroy {
           | IdqApiKeyPrincipal
           | undefined;
         if (!principal) {
-          // Il controller autentica sempre prima di chiamare l'handler.
+          // The controller always authenticates before calling the handler.
           throw new Error('Unauthenticated MCP request');
         }
         return this.createServer(principal);

@@ -26,26 +26,26 @@ function jsonError(
     );
 }
 
+/**
+ * Builds the Web Request the MCP SDK expects. Fastify has already parsed the
+ * JSON body, and the SDK takes it as `parsedBody`, so the body isn't copied
+ * again (nor its content-length header).
+ */
 function toWebRequest(req: FastifyRequest): Request {
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
+    if (value === undefined || name === 'content-length') continue;
     if (Array.isArray(value)) value.forEach((v) => headers.append(name, v));
     else headers.set(name, String(value));
   }
   const url = `${req.protocol}://${req.hostname}${req.url}`;
-  const hasBody = req.method === 'POST' && req.body !== undefined;
-  return new Request(url, {
-    method: req.method,
-    headers,
-    body: hasBody ? JSON.stringify(req.body) : undefined,
-  });
+  return new Request(url, { method: req.method, headers });
 }
 
 /**
- * Endpoint MCP di IDQ: https://<istanza>/mcp, Streamable HTTP, autenticato
- * con «Authorization: Bearer <chiave API IDQ>». Il percorso è già escluso
- * dal prefisso /api in main.ts.
+ * IDQ MCP endpoint: https://<instance>/mcp, Streamable HTTP, authenticated
+ * with "Authorization: Bearer <IDQ API key>". main.ts already excludes this
+ * path from the /api prefix.
  */
 @Controller('mcp')
 export class IdqMcpController {
@@ -70,6 +70,17 @@ export class IdqMcpController {
       });
     }
 
+    // Checked before the rate limit, so calls to a disabled workspace don't
+    // use up the key's quota.
+    const settings = await this.settingsService.get(principal.workspace.id);
+    if (!settings.idqMcpEnabled) {
+      return jsonError(
+        reply,
+        403,
+        'MCP is disabled for this workspace. An admin can enable it in Settings.',
+      );
+    }
+
     const limit = await this.rateLimit.check(
       principal.apiKeyId,
       principal.user.id,
@@ -78,15 +89,6 @@ export class IdqMcpController {
       return jsonError(reply, 429, 'Too many requests', {
         'retry-after': String(limit.retryAfter),
       });
-    }
-
-    const settings = await this.settingsService.get(principal.workspace.id);
-    if (!settings.idqMcpEnabled) {
-      return jsonError(
-        reply,
-        403,
-        'MCP is disabled for this workspace. An admin can enable it in Settings.',
-      );
     }
 
     const response = await this.mcpService.handler.fetch(toWebRequest(req), {

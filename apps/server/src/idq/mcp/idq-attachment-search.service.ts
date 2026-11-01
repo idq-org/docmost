@@ -23,9 +23,10 @@ export type AttachmentSearchResult = {
 };
 
 /**
- * Ricerca degli allegati per nome file. Il core non ha questa ricerca, quindi
- * è nostra: considera solo gli spazi di cui l'utente è membro e poi filtra
- * con i permessi di pagina del core, come la ricerca delle pagine.
+ * Attachment search by file name. Core doesn't have this search, so it's
+ * ours: it only looks at the spaces the user is a member of (by the space
+ * the page is in now), then filters with core's page permissions, like the
+ * page search does.
  */
 @Injectable()
 export class IdqAttachmentSearchService {
@@ -50,7 +51,7 @@ export class IdqAttachmentSearchService {
 
     const like = `%${opts.query.trim().replace(/[\\%_]/g, '\\$&')}%`;
 
-    // Ne prende di più del limite: alcune possono cadere al filtro dei permessi.
+    // Fetches more than the limit: some rows can drop out at the permission filter.
     let query = this.db
       .selectFrom('attachments')
       .innerJoin('pages', 'pages.id', 'attachments.pageId')
@@ -61,7 +62,7 @@ export class IdqAttachmentSearchService {
         'attachments.mimeType',
         'attachments.fileSize',
         'attachments.pageId',
-        'attachments.spaceId',
+        'pages.spaceId',
         'attachments.createdAt',
       ])
       .where('attachments.workspaceId', '=', workspaceId)
@@ -73,10 +74,12 @@ export class IdqAttachmentSearchService {
       .orderBy('attachments.createdAt', 'desc')
       .limit(opts.limit * 4);
 
+    // Filter on the page's space, not on attachments.spaceId, which is a copy:
+    // filterAccessiblePageIds below checks page restrictions, not membership.
     query = opts.spaceId
-      ? query.where('attachments.spaceId', '=', opts.spaceId)
+      ? query.where('pages.spaceId', '=', opts.spaceId)
       : query.where(
-          'attachments.spaceId',
+          'pages.spaceId',
           'in',
           this.spaceMemberRepo.getUserSpaceIdsQuery(user.id),
         );

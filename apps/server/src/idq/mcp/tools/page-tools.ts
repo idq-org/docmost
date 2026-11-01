@@ -217,7 +217,13 @@ export const pageTools = [
       page_id: pageId,
       title: z.string().max(500).optional().describe('New title'),
       icon: z.string().max(20).optional().describe('New emoji icon'),
-      markdown: z.string().optional().describe(contentDescription),
+      markdown: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          `${contentDescription} Can't be empty.`,
+        ),
       operation: z
         .enum(['replace', 'append', 'prepend'])
         .optional()
@@ -390,10 +396,7 @@ export const pageTools = [
               null,
               await ctx.core.firstChildPosition(page.spaceId, parentPageId),
             )
-          : generateJitteredKeyBetween(
-              await ctx.core.lastChildPosition(page.spaceId, parentPageId),
-              null,
-            );
+          : await ctx.core.lastChildPosition(page.spaceId, parentPageId);
       await ctx.core.pages.movePage(
         await toDto(MovePageDto, { pageId: page.id, parentPageId, position }),
         user,

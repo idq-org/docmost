@@ -8,7 +8,7 @@ import { PageIdDto } from '../../../core/comment/dto/comments.input';
 import { CreateCommentDto } from '../../../core/comment/dto/create-comment.dto';
 import { UpdateCommentDto } from '../../../core/comment/dto/update-comment.dto';
 import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
-import { toDto } from '../idq-mcp-core.service';
+import { McpInputError, toDto } from '../idq-mcp-core.service';
 import { defineTool } from './tool-context';
 
 const pageId = z
@@ -21,11 +21,59 @@ const content = z
   .string()
   .min(1)
   .max(20000)
-  .describe('Comment text in Markdown');
+  .describe(
+    'Comment text in Markdown. Comments support paragraphs, headings, ' +
+      'lists, quotes, code blocks, links and bold/italic/strikethrough/' +
+      'underline/inline code. Tables, task lists, images and other page-only ' +
+      'blocks are not supported.',
+  );
+
+// What the web app's comment editor can show (comment-editor.tsx: StarterKit,
+// Link and Mention). Anything else would make the whole comment render empty.
+const COMMENT_NODES = new Set([
+  'doc',
+  'paragraph',
+  'text',
+  'heading',
+  'blockquote',
+  'bulletList',
+  'orderedList',
+  'listItem',
+  'codeBlock',
+  'hardBreak',
+  'horizontalRule',
+  'mention',
+]);
+const COMMENT_MARKS = new Set([
+  'bold',
+  'italic',
+  'strike',
+  'underline',
+  'code',
+  'link',
+]);
+
+function unsupportedInComments(node: any, found = new Set<string>()) {
+  if (!node || typeof node !== 'object') return found;
+  if (node.type && !COMMENT_NODES.has(node.type)) found.add(node.type);
+  for (const mark of node.marks ?? []) {
+    if (mark?.type && !COMMENT_MARKS.has(mark.type)) found.add(mark.type);
+  }
+  for (const child of node.content ?? []) unsupportedInComments(child, found);
+  return found;
+}
 
 async function markdownToCommentJson(markdown: string): Promise<string> {
   const html = await markdownToHtml(markdown);
-  return JSON.stringify(htmlToJson(html as string));
+  const json = htmlToJson(html as string);
+  const unsupported = unsupportedInComments(json);
+  if (unsupported.size > 0) {
+    throw new McpInputError(
+      `comments don't support: ${[...unsupported].join(', ')}. ` +
+        'Use paragraphs, headings, lists, quotes, code blocks and links.',
+    );
+  }
+  return JSON.stringify(json);
 }
 
 function contentToMarkdown(value: unknown): string {

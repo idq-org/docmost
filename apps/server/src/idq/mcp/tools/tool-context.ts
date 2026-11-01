@@ -23,9 +23,9 @@ export type ToolDefinition<S extends z.ZodObject<any>> = {
   title: string;
   description: string;
   inputSchema: S;
-  /** Gli strumenti di scrittura vengono registrati nel log IDQ. */
+  /** Write tools are recorded in the IDQ write log. */
   write: boolean;
-  /** Per destructiveHint: cambia o sposta contenuti esistenti. */
+  /** For destructiveHint: changes or moves existing content. */
   destructive?: boolean;
   handler: (args: z.infer<S>, ctx: ToolContext) => Promise<unknown>;
 };

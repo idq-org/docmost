@@ -1,8 +1,8 @@
 import i18n from "@/i18n";
 
-// Traduzioni delle funzionalità IDQ. Stanno qui e non in public/locales per
-// non creare conflitti con gli aggiornamenti delle traduzioni di Docmost.
-// Le chiavi sono il testo inglese, come nel resto dell'app.
+// Italian translations of the IDQ MCP page. They live here, not in
+// public/locales, so they never conflict with Docmost's translation updates.
+// The keys are the English text, as in the rest of the app.
 const it: Record<string, string> = {
   "IDQ MCP": "MCP di IDQ",
   "MCP and API keys": "MCP e chiavi API",
@@ -46,6 +46,7 @@ const it: Record<string, string> = {
   "Last used": "Ultimo uso",
   Expires: "Scade",
   Never: "Mai",
+  Expired: "Scaduta",
   Revoke: "Revoca",
   "Revoke API key": "Revoca chiave API",
   'Revoke the key "{{name}}"? Assistants using it will stop working immediately.':
@@ -64,5 +65,5 @@ function register() {
 }
 
 register();
-// Il backend http carica le traduzioni di Docmost dopo: le riaggiungiamo.
+// The http backend loads Docmost's translations later: add ours again.
 i18n.on("loaded", register);

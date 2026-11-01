@@ -2,12 +2,14 @@ import { Injectable, OnModuleInit, Type } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import slugify from '@sindresorhus/slugify';
 import { PageController } from '../../core/page/page.controller';
 import { SpaceController } from '../../core/space/space.controller';
 import { CommentController } from '../../core/comment/comment.controller';
 import { SearchController } from '../../core/search/search.controller';
 import { WorkspaceController } from '../../core/workspace/controllers/workspace.controller';
 import { UserController } from '../../core/user/user.controller';
+import { PageService } from '../../core/page/services/page.service';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
 import { PageRepo } from '@docmost/db/repos/page/page.repo';
 import { PageAccessService } from '../../core/page/page-access/page-access.service';
@@ -17,9 +19,9 @@ import { KyselyDB } from '@docmost/db/types/kysely.types';
 export class McpInputError extends Error {}
 
 /**
- * Valida un DTO del core come fa la ValidationPipe globale dell'app
- * (whitelist + transform), così ai controller arrivano gli stessi oggetti di
- * una chiamata HTTP.
+ * Validates a core DTO the way the app's global ValidationPipe does
+ * (whitelist + transform), so the controllers get the same objects as from
+ * an HTTP call.
  */
 export async function toDto<T extends object>(
   cls: Type<T>,
@@ -41,9 +43,9 @@ export async function toDto<T extends object>(
 }
 
 /**
- * Accesso ai controller del core. Gli strumenti MCP passano da qui invece di
- * chiamare direttamente repository e service: così ogni chiamata fa gli
- * stessi controlli di permesso (spazio e pagina) dell'app web.
+ * Access to the core controllers. The MCP tools go through them instead of
+ * calling repositories and services directly, so every call runs the same
+ * permission checks (space and page) as the web app.
  */
 @Injectable()
 export class IdqMcpCoreService implements OnModuleInit {
@@ -55,6 +57,7 @@ export class IdqMcpCoreService implements OnModuleInit {
   users: UserController;
 
   pageAccess: PageAccessService;
+  pageService: PageService;
 
   constructor(
     private readonly moduleRef: ModuleRef,
@@ -72,28 +75,24 @@ export class IdqMcpCoreService implements OnModuleInit {
     this.workspace = get(WorkspaceController);
     this.users = get(UserController);
     this.pageAccess = get(PageAccessService);
+    this.pageService = get(PageService);
   }
 
-  /** Posizione dell'ultimo figlio di un genitore (null = radice dello spazio). */
+  /**
+   * Position after the last child of a parent (null = space root). Uses the
+   * same core method as the web app.
+   */
   async lastChildPosition(
     spaceId: string,
     parentPageId: string | null,
-  ): Promise<string | null> {
-    let query = this.db
-      .selectFrom('pages')
-      .select(['position'])
-      .where('spaceId', '=', spaceId)
-      .where('deletedAt', 'is', null)
-      .orderBy('position', (ob) => ob.collate('C').desc())
-      .limit(1);
-    query = parentPageId
-      ? query.where('parentPageId', '=', parentPageId)
-      : query.where('parentPageId', 'is', null);
-    const row = await query.executeTakeFirst();
-    return row?.position ?? null;
+  ): Promise<string> {
+    return this.pageService.nextPagePosition(
+      spaceId,
+      parentPageId ?? undefined,
+    );
   }
 
-  /** Posizione del primo figlio di un genitore (null = radice dello spazio). */
+  /** Position of the first child of a parent (null = space root). */
   async firstChildPosition(
     spaceId: string,
     parentPageId: string | null,
@@ -103,6 +102,7 @@ export class IdqMcpCoreService implements OnModuleInit {
       .select(['position'])
       .where('spaceId', '=', spaceId)
       .where('deletedAt', 'is', null)
+      .where('position', 'is not', null)
       .orderBy('position', (ob) => ob.collate('C').asc())
       .limit(1);
     query = parentPageId
@@ -112,20 +112,19 @@ export class IdqMcpCoreService implements OnModuleInit {
     return row?.position ?? null;
   }
 
+  /** Page URL, built like the client's buildPageSlug. */
   pageUrl(
     spaceSlug: string | undefined,
     slugId: string,
     title?: string | null,
   ) {
     if (!spaceSlug || !slugId) return undefined;
-    const titleSlug =
-      (title ?? '')
-        .substring(0, 70)
-        .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'untitled';
+    const titleSlug = slugify(title?.substring(0, 70) || 'untitled', {
+      customReplacements: [
+        ['♥', ''],
+        ['🦄', ''],
+      ],
+    });
     return `${this.environmentService.getAppUrl()}/s/${spaceSlug}/p/${titleSlug}-${slugId}`;
   }
 }

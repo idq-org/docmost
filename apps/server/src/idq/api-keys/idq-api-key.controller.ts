@@ -6,7 +6,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDate,
   IsNotEmpty,
@@ -23,6 +23,7 @@ import { User, Workspace } from '@docmost/db/types/entity.types';
 import { IdqApiKeyService } from './idq-api-key.service';
 
 export class CreateIdqApiKeyDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -40,8 +41,8 @@ export class IdqApiKeyIdDto {
 }
 
 /**
- * Chiavi API personali di IDQ. Si gestiscono solo da una sessione
- * interattiva: una chiave non può creare altre chiavi.
+ * IDQ personal API keys. They can only be managed from an interactive
+ * session: a key can't create other keys.
  */
 @UseGuards(JwtAuthGuard)
 @RequireSessionAuth()
