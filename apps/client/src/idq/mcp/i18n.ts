@@ -39,6 +39,9 @@ const it: Record<string, string> = {
   "This is the only time the key is shown. Copy it now and keep it somewhere safe.":
     "La chiave viene mostrata solo adesso. Copiala e conservala in un posto sicuro.",
   Copy: "Copia",
+  "Copy MCP server URL": "Copia l'indirizzo del server MCP",
+  "Copy command": "Copia il comando",
+  "Copy API key": "Copia la chiave API",
   Copied: "Copiata",
   Done: "Fatto",
   Key: "Chiave",
