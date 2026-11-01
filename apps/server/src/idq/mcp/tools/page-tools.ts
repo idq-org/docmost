@@ -108,8 +108,8 @@ export const pageTools = [
       'restrict to one space or to page titles only.',
     inputSchema: z.object({
       query: z.string().min(1).max(200).describe('Search text'),
-      spaceId: spaceId.optional(),
-      titleOnly: z
+      space_id: spaceId.optional(),
+      title_only: z
         .boolean()
         .optional()
         .describe('Match page titles only (default false)'),
@@ -128,8 +128,8 @@ export const pageTools = [
       const result: any = await ctx.core.search.pageSearch(
         await toDto(SearchDTO, {
           query: args.query,
-          spaceId: args.spaceId,
-          titleOnly: args.titleOnly,
+          spaceId: args.space_id,
+          titleOnly: args.title_only,
           limit: args.limit ?? 20,
           offset: args.offset,
         }),
@@ -158,9 +158,9 @@ export const pageTools = [
     description:
       'Get a page with its content as Markdown, plus space, author and ' +
       'whether the user can edit it.',
-    inputSchema: z.object({ pageId }),
+    inputSchema: z.object({ page_id: pageId }),
     write: false,
-    handler: async (args, ctx) => fullPage(ctx, args.pageId),
+    handler: async (args, ctx) => fullPage(ctx, args.page_id),
   }),
 
   defineTool({
@@ -170,10 +170,10 @@ export const pageTools = [
       'Create a page in a space, at the root or under a parent page. ' +
       'Content is written in Markdown.',
     inputSchema: z.object({
-      spaceId,
+      space_id: spaceId,
       title: z.string().max(500).describe('Page title'),
-      content: z.string().optional().describe(contentDescription),
-      parentPageId: pageId
+      markdown: z.string().optional().describe(contentDescription),
+      parent_page_id: pageId
         .optional()
         .describe('Parent page ID; omit to create the page at the space root'),
       icon: z
@@ -186,18 +186,18 @@ export const pageTools = [
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
       let parentPageId: string | undefined;
-      if (args.parentPageId) {
-        const parent = await findVisiblePage(ctx, args.parentPageId);
+      if (args.parent_page_id) {
+        const parent = await findVisiblePage(ctx, args.parent_page_id);
         parentPageId = parent.id;
       }
       const page: any = await ctx.core.pages.create(
         await toDto(CreatePageDto, {
-          spaceId: args.spaceId,
+          spaceId: args.space_id,
           title: args.title,
           icon: args.icon,
           parentPageId,
-          content: args.content,
-          format: args.content !== undefined ? 'markdown' : undefined,
+          content: args.markdown,
+          format: args.markdown !== undefined ? 'markdown' : undefined,
         }),
         user,
         workspace,
@@ -214,10 +214,10 @@ export const pageTools = [
       'by default it replaces the whole page, or use operation "append" / ' +
       '"prepend" to add to it.',
     inputSchema: z.object({
-      pageId,
+      page_id: pageId,
       title: z.string().max(500).optional().describe('New title'),
       icon: z.string().max(20).optional().describe('New emoji icon'),
-      content: z.string().optional().describe(contentDescription),
+      markdown: z.string().optional().describe(contentDescription),
       operation: z
         .enum(['replace', 'append', 'prepend'])
         .optional()
@@ -229,25 +229,25 @@ export const pageTools = [
       if (
         args.title === undefined &&
         args.icon === undefined &&
-        args.content === undefined
+        args.markdown === undefined
       ) {
         throw new BadRequestException(
           'Nothing to update: pass title, icon or content',
         );
       }
       const { user } = ctx.principal;
-      const page = await findVisiblePage(ctx, args.pageId);
+      const page = await findVisiblePage(ctx, args.page_id);
       await ctx.core.pages.update(
         await toDto(UpdatePageDto, {
           pageId: page.id,
           title: args.title,
           icon: args.icon,
-          content: args.content,
+          content: args.markdown,
           operation:
-            args.content !== undefined
+            args.markdown !== undefined
               ? (args.operation ?? 'replace')
               : undefined,
-          format: args.content !== undefined ? 'markdown' : undefined,
+          format: args.markdown !== undefined ? 'markdown' : undefined,
         }),
         user,
       );
@@ -261,12 +261,12 @@ export const pageTools = [
     description:
       'List recently updated pages the user can read, in one space or ' +
       "across all of the user's spaces.",
-    inputSchema: z.object({ spaceId: spaceId.optional(), limit, cursor }),
+    inputSchema: z.object({ space_id: spaceId.optional(), limit, cursor }),
     write: false,
     handler: async (args, ctx) => {
       const { user } = ctx.principal;
       const result = await ctx.core.pages.getRecentPages(
-        await toDto(RecentPageDto, { spaceId: args.spaceId }),
+        await toDto(RecentPageDto, { spaceId: args.space_id }),
         await pagination(args),
         user,
       );
@@ -279,12 +279,12 @@ export const pageTools = [
     title: 'List child pages',
     description:
       'List the child pages of a page, or the root pages of a space when ' +
-      'only spaceId is given. Use it to browse the page tree.',
+      'only space_id is given. Use it to browse the page tree.',
     inputSchema: z.object({
-      pageId: pageId.optional().describe('Parent page whose children to list'),
-      spaceId: spaceId
+      page_id: pageId.optional().describe('Parent page whose children to list'),
+      space_id: spaceId
         .optional()
-        .describe('Space whose root pages to list (when pageId is omitted)'),
+        .describe('Space whose root pages to list (when page_id is omitted)'),
       limit,
       cursor,
     }),
@@ -292,13 +292,13 @@ export const pageTools = [
     handler: async (args, ctx) => {
       const { user } = ctx.principal;
       let dto: Record<string, unknown>;
-      if (args.pageId) {
-        const parent = await findVisiblePage(ctx, args.pageId);
+      if (args.page_id) {
+        const parent = await findVisiblePage(ctx, args.page_id);
         dto = { pageId: parent.id };
-      } else if (args.spaceId) {
-        dto = { spaceId: args.spaceId };
+      } else if (args.space_id) {
+        dto = { spaceId: args.space_id };
       } else {
-        throw new BadRequestException('Pass pageId or spaceId');
+        throw new BadRequestException('Pass page_id or space_id');
       }
       const result = await ctx.core.pages.getSidebarPages(
         await toDto(SidebarPageDto, dto),
@@ -315,10 +315,10 @@ export const pageTools = [
     description:
       'Duplicate a page, with its sub-pages, in the same space. The copy is ' +
       'placed next to the original.',
-    inputSchema: z.object({ pageId }),
+    inputSchema: z.object({ page_id: pageId }),
     write: true,
     handler: async (args, ctx) => {
-      const page = await findVisiblePage(ctx, args.pageId);
+      const page = await findVisiblePage(ctx, args.page_id);
       const result: any = await ctx.core.pages.duplicatePage(
         await toDto(DuplicatePageDto, { pageId: page.id }),
         ctx.principal.user,
@@ -334,16 +334,16 @@ export const pageTools = [
       'Copy a page, with its sub-pages, to another space. The original ' +
       'stays where it is.',
     inputSchema: z.object({
-      pageId,
-      spaceId: spaceId.describe('Destination space ID'),
+      page_id: pageId,
+      space_id: spaceId.describe('Destination space ID'),
     }),
     write: true,
     handler: async (args, ctx) => {
-      const page = await findVisiblePage(ctx, args.pageId);
+      const page = await findVisiblePage(ctx, args.page_id);
       const result: any = await ctx.core.pages.duplicatePage(
         await toDto(DuplicatePageDto, {
           pageId: page.id,
-          spaceId: args.spaceId,
+          spaceId: args.space_id,
         }),
         ctx.principal.user,
       );
@@ -356,10 +356,10 @@ export const pageTools = [
     title: 'Move page',
     description:
       'Move a page within its space: under another parent page, or to the ' +
-      'space root when parentPageId is null. Sub-pages move with it.',
+      'space root when parent_page_id is null. Sub-pages move with it.',
     inputSchema: z.object({
-      pageId,
-      parentPageId: pageId
+      page_id: pageId,
+      parent_page_id: pageId
         .nullable()
         .describe('New parent page ID, or null to move to the space root'),
       position: z
@@ -373,10 +373,10 @@ export const pageTools = [
     destructive: true,
     handler: async (args, ctx) => {
       const { user } = ctx.principal;
-      const page = await findVisiblePage(ctx, args.pageId);
+      const page = await findVisiblePage(ctx, args.page_id);
       let parentPageId: string | null = null;
-      if (args.parentPageId) {
-        const parent = await findVisiblePage(ctx, args.parentPageId);
+      if (args.parent_page_id) {
+        const parent = await findVisiblePage(ctx, args.parent_page_id);
         if (parent.spaceId !== page.spaceId) {
           throw new BadRequestException(
             'The parent page is in another space: use move_page_to_space',
@@ -411,17 +411,17 @@ export const pageTools = [
     description:
       'Move a page, with its sub-pages, to the root of another space.',
     inputSchema: z.object({
-      pageId,
-      spaceId: spaceId.describe('Destination space ID'),
+      page_id: pageId,
+      space_id: spaceId.describe('Destination space ID'),
     }),
     write: true,
     destructive: true,
     handler: async (args, ctx) => {
-      const page = await findVisiblePage(ctx, args.pageId);
+      const page = await findVisiblePage(ctx, args.page_id);
       await ctx.core.pages.movePageToSpace(
         await toDto(MovePageToSpaceDto, {
           pageId: page.id,
-          spaceId: args.spaceId,
+          spaceId: args.space_id,
         }),
         ctx.principal.user,
       );

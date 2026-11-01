@@ -312,7 +312,7 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     it('get_space is forbidden', async () => {
       const r = await callTool(memberKey, 'get_space', {
-        spaceId: secretSpaceId,
+        space_id: secretSpaceId,
       });
       expect(r.isError).toBe(true);
     });
@@ -326,14 +326,14 @@ describeE2E('IDQ MCP (e2e)', () => {
 
       const inSpace = await callTool(memberKey, 'search_pages', {
         query: SECRET_WORD,
-        spaceId: secretSpaceId,
+        space_id: secretSpaceId,
       });
       expect(inSpace.isError).toBe(true);
     });
 
     it('get_page is forbidden, by id and by slug id', async () => {
       for (const pageId of [secretPageId, secretPageSlugId]) {
-        const r = await callTool(memberKey, 'get_page', { pageId });
+        const r = await callTool(memberKey, 'get_page', { page_id: pageId });
         expect(r.isError).toBe(true);
         expect(r.text).not.toContain(SECRET_WORD);
       }
@@ -344,20 +344,20 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect(JSON.stringify(recent.data)).not.toContain(SECRET_WORD);
 
       expect(
-        (await callTool(memberKey, 'list_pages', { spaceId: secretSpaceId }))
+        (await callTool(memberKey, 'list_pages', { space_id: secretSpaceId }))
           .isError,
       ).toBe(true);
       expect(
         (
           await callTool(memberKey, 'list_child_pages', {
-            spaceId: secretSpaceId,
+            space_id: secretSpaceId,
           })
         ).isError,
       ).toBe(true);
       expect(
         (
           await callTool(memberKey, 'list_child_pages', {
-            pageId: secretPageId,
+            page_id: secretPageId,
           })
         ).isError,
       ).toBe(true);
@@ -365,13 +365,13 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     it('get_comments and create_comment are forbidden', async () => {
       const read = await callTool(memberKey, 'get_comments', {
-        pageId: secretPageId,
+        page_id: secretPageId,
       });
       expect(read.isError).toBe(true);
       expect(read.text).not.toContain(SECRET_WORD);
       const write = await callTool(memberKey, 'create_comment', {
-        pageId: secretPageId,
-        content: 'ciao',
+        page_id: secretPageId,
+        markdown: 'ciao',
       });
       expect(write.isError).toBe(true);
     });
@@ -386,39 +386,39 @@ describeE2E('IDQ MCP (e2e)', () => {
 
       const inSpace = await callTool(memberKey, 'search_attachments', {
         query: 'bilancio',
-        spaceId: secretSpaceId,
+        space_id: secretSpaceId,
       });
       expect(inSpace.isError).toBe(true);
     });
 
     it('cannot write, copy or move anything in or out of it', async () => {
       const attempts: [string, object][] = [
-        ['create_page', { spaceId: secretSpaceId, title: 'x' }],
+        ['create_page', { space_id: secretSpaceId, title: 'x' }],
         [
           'create_page',
-          { spaceId: sharedSpaceId, title: 'x', parentPageId: secretPageId },
+          { space_id: sharedSpaceId, title: 'x', parent_page_id: secretPageId },
         ],
-        ['update_page', { pageId: secretPageId, title: 'x' }],
-        ['duplicate_page', { pageId: secretPageId }],
+        ['update_page', { page_id: secretPageId, title: 'x' }],
+        ['duplicate_page', { page_id: secretPageId }],
         [
           'copy_page_to_space',
-          { pageId: secretPageId, spaceId: sharedSpaceId },
+          { page_id: secretPageId, space_id: sharedSpaceId },
         ],
         [
           'copy_page_to_space',
-          { pageId: sharedPageId, spaceId: secretSpaceId },
+          { page_id: sharedPageId, space_id: secretSpaceId },
         ],
-        ['move_page', { pageId: secretPageId, parentPageId: null }],
-        ['move_page', { pageId: sharedPageId, parentPageId: secretPageId }],
+        ['move_page', { page_id: secretPageId, parent_page_id: null }],
+        ['move_page', { page_id: sharedPageId, parent_page_id: secretPageId }],
         [
           'move_page_to_space',
-          { pageId: sharedPageId, spaceId: secretSpaceId },
+          { page_id: sharedPageId, space_id: secretSpaceId },
         ],
         [
           'move_page_to_space',
-          { pageId: secretPageId, spaceId: sharedSpaceId },
+          { page_id: secretPageId, space_id: sharedSpaceId },
         ],
-        ['update_space', { spaceId: secretSpaceId, name: 'Rinominato' }],
+        ['update_space', { space_id: secretSpaceId, name: 'Rinominato' }],
       ];
       for (const [tool, args] of attempts) {
         const r = await callTool(memberKey, tool, args);
@@ -444,7 +444,7 @@ describeE2E('IDQ MCP (e2e)', () => {
     });
 
     it('the admin, who is in the space, can read it', async () => {
-      const r = await callTool(adminKey, 'get_page', { pageId: secretPageId });
+      const r = await callTool(adminKey, 'get_page', { page_id: secretPageId });
       expect(r.isError).toBe(false);
       expect(r.data.content).toContain(SECRET_WORD);
     });
@@ -476,9 +476,9 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     it('create_page writes headings, lists, tables and Mermaid', async () => {
       const r = await callTool(memberKey, 'create_page', {
-        spaceId: sharedSpaceId,
+        space_id: sharedSpaceId,
         title: 'Markdown',
-        content: markdown,
+        markdown: markdown,
       });
       expect(r.isError).toBe(false);
       pageId = r.data.id;
@@ -507,7 +507,7 @@ describeE2E('IDQ MCP (e2e)', () => {
     });
 
     it('get_page returns the same structure as Markdown', async () => {
-      const r = await callTool(memberKey, 'get_page', { pageId });
+      const r = await callTool(memberKey, 'get_page', { page_id: pageId });
       expect(r.data.content).toMatch(/^# Titolo/m);
       expect(r.data.content).toMatch(/^## Sottotitolo/m);
       expect(r.data.content).toMatch(/^[-*] uno/m);
@@ -519,19 +519,19 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     it('update_page replaces and appends content', async () => {
       const replaced = await callTool(memberKey, 'update_page', {
-        pageId,
+        page_id: pageId,
         title: 'Markdown 2',
-        content: 'Nuovo testo',
+        markdown: 'Nuovo testo',
       });
       expect(replaced.isError).toBe(false);
       expect(replaced.data.title).toBe('Markdown 2');
 
       await callTool(memberKey, 'update_page', {
-        pageId,
-        content: 'Aggiunta',
+        page_id: pageId,
+        markdown: 'Aggiunta',
         operation: 'append',
       });
-      const r = await callTool(memberKey, 'get_page', { pageId });
+      const r = await callTool(memberKey, 'get_page', { page_id: pageId });
       expect(r.data.content).toContain('Nuovo testo');
       expect(r.data.content).toContain('Aggiunta');
       expect(r.data.content).not.toContain('Sottotitolo');
@@ -539,34 +539,38 @@ describeE2E('IDQ MCP (e2e)', () => {
 
     it('moves, duplicates and lists child pages', async () => {
       const moved = await callTool(memberKey, 'move_page', {
-        pageId,
-        parentPageId: sharedPageId,
+        page_id: pageId,
+        parent_page_id: sharedPageId,
       });
       expect(moved.isError).toBe(false);
       expect(moved.data.page.parentPageId).toBe(sharedPageId);
 
       const children = await callTool(memberKey, 'list_child_pages', {
-        pageId: sharedPageId,
+        page_id: sharedPageId,
       });
       expect(children.data.items.map((p: any) => p.id)).toContain(pageId);
 
-      const dup = await callTool(memberKey, 'duplicate_page', { pageId });
+      const dup = await callTool(memberKey, 'duplicate_page', {
+        page_id: pageId,
+      });
       expect(dup.isError).toBe(false);
       expect(dup.data.page.id).not.toBe(pageId);
     });
 
     it('comments in Markdown', async () => {
       const created = await callTool(memberKey, 'create_comment', {
-        pageId,
-        content: 'Un **commento**',
+        page_id: pageId,
+        markdown: 'Un **commento**',
       });
       expect(created.isError).toBe(false);
       const updated = await callTool(memberKey, 'update_comment', {
-        commentId: created.data.id,
-        content: 'Commento corretto',
+        comment_id: created.data.id,
+        markdown: 'Commento corretto',
       });
       expect(updated.isError).toBe(false);
-      const list = await callTool(memberKey, 'get_comments', { pageId });
+      const list = await callTool(memberKey, 'get_comments', {
+        page_id: pageId,
+      });
       expect(list.data.items[0].content).toContain('Commento corretto');
     });
   });

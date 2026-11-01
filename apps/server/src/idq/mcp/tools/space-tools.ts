@@ -72,12 +72,12 @@ export const spaceTools = [
     name: 'get_space',
     title: 'Get space',
     description: "Get the details of a space and the user's role in it.",
-    inputSchema: z.object({ spaceId }),
+    inputSchema: z.object({ space_id: spaceId }),
     write: false,
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
       const space = await ctx.core.spaces.getSpaceInfo(
-        await toDto(SpaceIdDto, { spaceId: args.spaceId }),
+        await toDto(SpaceIdDto, { spaceId: args.space_id }),
         user,
         workspace,
       );
@@ -115,7 +115,7 @@ export const spaceTools = [
       'Change the name, slug or description of a space. Requires space ' +
       'admin rights.',
     inputSchema: z.object({
-      spaceId,
+      space_id: spaceId,
       name: z.string().min(2).max(100).optional().describe('New name'),
       slug: slug.optional(),
       description: z.string().max(500).optional().describe('New description'),
@@ -125,12 +125,17 @@ export const spaceTools = [
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
       await ctx.core.spaces.updateSpace(
-        await toDto(UpdateSpaceDto, args),
+        await toDto(UpdateSpaceDto, {
+          spaceId: args.space_id,
+          name: args.name,
+          slug: args.slug,
+          description: args.description,
+        }),
         user,
         workspace,
       );
       const space = await ctx.core.spaces.getSpaceInfo(
-        await toDto(SpaceIdDto, { spaceId: args.spaceId }),
+        await toDto(SpaceIdDto, { spaceId: args.space_id }),
         user,
         workspace,
       );

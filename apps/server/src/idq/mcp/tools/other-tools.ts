@@ -12,7 +12,7 @@ export const otherTools = [
       'can read. Returns the page each file belongs to.',
     inputSchema: z.object({
       query: z.string().min(1).max(200).describe('Part of the file name'),
-      spaceId: z.string().uuid().optional().describe('Restrict to one space'),
+      space_id: z.string().uuid().optional().describe('Restrict to one space'),
       limit: z
         .number()
         .int()
@@ -26,7 +26,7 @@ export const otherTools = [
       const { user, workspace } = ctx.principal;
       const items = await ctx.attachments.search(user, workspace.id, {
         query: args.query,
-        spaceId: args.spaceId,
+        spaceId: args.space_id,
         limit: args.limit ?? 20,
       });
       return { items };

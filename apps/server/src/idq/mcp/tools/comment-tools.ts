@@ -64,7 +64,7 @@ export const commentTools = [
       'List the comments of a page, oldest first, with their text as ' +
       'Markdown. Replies have parentCommentId set.',
     inputSchema: z.object({
-      pageId,
+      page_id: pageId,
       limit: z
         .number()
         .int()
@@ -81,7 +81,7 @@ export const commentTools = [
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
       const result: any = await ctx.core.comments.findPageComments(
-        await toDto(PageIdDto, { pageId: args.pageId }),
+        await toDto(PageIdDto, { pageId: args.page_id }),
         await toDto(PaginationOptions, {
           limit: args.limit ?? 50,
           cursor: args.cursor,
@@ -101,11 +101,11 @@ export const commentTools = [
     title: 'Create comment',
     description:
       'Add a comment to a page, or reply to an existing comment with ' +
-      'parentCommentId. Text is Markdown.',
+      'parent_comment_id. Text is Markdown.',
     inputSchema: z.object({
-      pageId,
-      content,
-      parentCommentId: z
+      page_id: pageId,
+      markdown: content,
+      parent_comment_id: z
         .string()
         .uuid()
         .optional()
@@ -116,9 +116,9 @@ export const commentTools = [
       const { user, workspace } = ctx.principal;
       const comment = await ctx.core.comments.create(
         await toDto(CreateCommentDto, {
-          pageId: args.pageId,
-          content: await markdownToCommentJson(args.content),
-          parentCommentId: args.parentCommentId,
+          pageId: args.page_id,
+          content: await markdownToCommentJson(args.markdown),
+          parentCommentId: args.parent_comment_id,
           type: 'page',
         }),
         user,
@@ -133,8 +133,8 @@ export const commentTools = [
     title: 'Update comment',
     description: 'Replace the text of a comment. Text is Markdown.',
     inputSchema: z.object({
-      commentId: z.string().uuid().describe('Comment ID'),
-      content,
+      comment_id: z.string().uuid().describe('Comment ID'),
+      markdown: content,
     }),
     write: true,
     destructive: true,
@@ -142,8 +142,8 @@ export const commentTools = [
       const { user, workspace } = ctx.principal;
       const comment = await ctx.core.comments.update(
         await toDto(UpdateCommentDto, {
-          commentId: args.commentId,
-          content: await markdownToCommentJson(args.content),
+          commentId: args.comment_id,
+          content: await markdownToCommentJson(args.markdown),
         }),
         user,
         workspace,
