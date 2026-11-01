@@ -1,0 +1,8 @@
+# Docmost files that the idq branch modifies, one per line, with the reason.
+# These are the only places where merges from upstream can conflict, so keep
+# the list short: see "Keeping upstream merges easy" in .github/README.md.
+#
+# The "upstream-files" CI check fails when a PR modifies a Docmost file that
+# isn't listed here, and warns about listed files that are no longer modified.
+#
+# Format: <path>  # <reason>

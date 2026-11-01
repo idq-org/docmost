@@ -1,9 +1,9 @@
 name: Deploy
 
-# A ogni push su idq aggiorna https://app.informaticidiquartiere.org.
-# La chiave DEPLOY_SSH_KEY sulla VPS può solo lanciare /srv/docmost/deploy.sh
-# (forced command in authorized_keys), che porta /srv/docmost/src a origin/idq
-# e ricostruisce i container. Secrets: DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS, DEPLOY_HOST.
+# On every push to idq, updates https://app.informaticidiquartiere.org.
+# On the VPS, the DEPLOY_SSH_KEY key can only run /srv/docmost/deploy.sh
+# (forced command in authorized_keys), which brings /srv/docmost/src to origin/idq
+# and rebuilds the containers. Secrets: DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS, DEPLOY_HOST.
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Deploy sulla VPS
+      - name: Deploy to the VPS
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
