@@ -1,108 +1,130 @@
-# Docmost — fork di Informatici di Quartiere
+# Docmost — Informatici di Quartiere fork
 
-Fork di [docmost/docmost](https://github.com/docmost/docmost) che IDQ usa per la knowledge base dell'associazione, consultabile anche da agenti via MCP (vedi [MCP.md](MCP.md)). Il README originale del progetto è [`README.md`](../README.md).
+Fork of [docmost/docmost](https://github.com/docmost/docmost) that IDQ uses for the association's knowledge base, which agents can also read over MCP (see [MCP.md](MCP.md)). The project's original README is [`README.md`](../README.md).
 
-## Branch
+## Branches
 
-| Branch | Contenuto | Regole |
+| Branch | Contents | Rules |
 |---|---|---|
-| `idq` (predefinito) | Docmost più le nostre modifiche; è il branch da cui si fa il deploy | le modifiche entrano tramite PR |
-| `main` | copia identica di `docmost/docmost@main` | non si committa mai a mano: lo aggiorna la action |
+| `idq` (default) | Docmost plus our changes; deploys run from this branch | changes go in through PRs |
+| `main` | exact copy of `docmost/docmost@main` | never commit to it by hand: the action updates it |
 
-Entrambi i branch non si possono cancellare né sovrascrivere con force push.
+Neither branch can be deleted or force-pushed.
 
-## Aggiornamenti da Docmost
+## Updates from Docmost
 
-La action [`Sync upstream`](workflows/sync-upstream.yml) gira ogni notte, oppure a mano da *Actions → Sync upstream → Run workflow*:
+The [`Sync upstream`](workflows/sync-upstream.yml) action runs every night, or by hand from *Actions → Sync upstream → Run workflow*:
 
-1. porta `main` allo stato di `docmost/docmost`;
-2. se `main` ha commit che `idq` non ha, apre una PR `main → idq` (una sola alla volta).
+1. it brings `main` up to date with `docmost/docmost`;
+2. if `main` has commits that `idq` doesn't, it opens a `main → idq` PR (one at a time).
 
-La PR si unisce con **merge commit**: squash e rebase sono disattivati nel repo, così la storia resta condivisa con l'originale e i prossimi aggiornamenti restano semplici. Dopo il merge non cancellare `main`.
+Merge that PR with a **merge commit**: squash and rebase are disabled in the repo, so the history stays shared with upstream and later updates stay simple. Don't delete `main` after the merge.
 
-Se la PR ha conflitti, si risolvono in locale:
+If the PR has conflicts, resolve them locally:
 
 ```sh
 git checkout idq && git pull
 git fetch origin
-git merge origin/main      # oppure una versione precisa, es. git merge v0.98.0
-# risolvere i conflitti, poi:
+git merge origin/main      # or a specific release, e.g. git merge v0.98.0
+# resolve the conflicts, then:
 git push
 ```
 
-Se la action fallisce con un errore sui permessi `workflows`, Docmost ha modificato i suoi file in `.github/workflows` e il token della action non può copiarli. In quel caso si aggiorna `main` con il proprio account (serve il permesso `workflow` di `gh`):
+Conflicts can only happen in the Docmost files we modify, which are all listed in [`idq-upstream-files.txt`](idq-upstream-files.txt). When resolving them:
+
+- with `git config rerere.enabled true` (see [Local development](#local-development)) Git remembers how you resolved a conflict and reapplies it when the same conflict comes back;
+- `git grep -n "IDQ:"` lists our hook lines in Docmost files;
+- don't merge `pnpm-lock.yaml` by hand: take Docmost's version and regenerate it with `git checkout --theirs pnpm-lock.yaml && pnpm install --lockfile-only && git add pnpm-lock.yaml`.
+
+If the action fails with an error about `workflows` permissions, Docmost changed its own files in `.github/workflows` and the action's token can't copy them. In that case update `main` with your own account (it needs the `workflow` scope in `gh`):
 
 ```sh
 gh repo sync idq-org/docmost --branch main
 ```
 
-## CI e deploy
+## CI and deploy
 
-Docmost gira su https://app.informaticidiquartiere.org, sulla VPS Hostinger, in `/srv/docmost` (compose, `.env` con i segreti, backup notturni del database in `backups/`).
+Docmost runs at https://app.informaticidiquartiere.org, on the Hostinger VPS, in `/srv/docmost` (compose, `.env` with the secrets, nightly database backups in `backups/`).
 
-- [`CI`](workflows/idq-ci.yml) costruisce l'immagine Docker su ogni PR verso `idq`. Il check `docker-build` è obbligatorio per unire. Per le PR di Sync upstream la lancia Sync upstream stesso.
-- [`Deploy`](workflows/idq-deploy.yml) parte a ogni push su `idq` (cioè a ogni merge) e lancia `/srv/docmost/deploy.sh` sulla VPS: porta il codice a `origin/idq` e ricostruisce i container. Si può rilanciare a mano da *Actions → Deploy → Run workflow*.
+- [`CI`](workflows/idq-ci.yml) runs on every PR to `idq`:
+  - `docker-build` builds the Docker image. It is required to merge. For Sync upstream PRs, Sync upstream starts it itself.
+  - `upstream-files` fails if the PR modifies a Docmost file that isn't listed in [`idq-upstream-files.txt`](idq-upstream-files.txt) (see [Keeping upstream merges easy](#keeping-upstream-merges-easy)).
+- [`Deploy`](workflows/idq-deploy.yml) runs on every push to `idq` (that is, on every merge) and runs `/srv/docmost/deploy.sh` on the VPS: it brings the code to `origin/idq` and rebuilds the containers. It can be rerun by hand from *Actions → Deploy → Run workflow*.
 
-Sulla VPS non si modifica mai `/srv/docmost/src` a mano: a ogni deploy viene riportato a `origin/idq`.
+Never edit `/srv/docmost/src` by hand on the VPS: every deploy resets it to `origin/idq`.
 
-## Sviluppo in locale
+## Local development
 
 ```sh
 git clone https://github.com/idq-org/docmost.git && cd docmost
 git remote add upstream https://github.com/docmost/docmost.git
-git remote set-url --push upstream DISABLE   # niente push per errore verso l'originale
-gh repo set-default idq-org/docmost          # le PR di gh vanno qui, non su docmost/docmost
+git remote set-url --push upstream DISABLE   # no accidental pushes to upstream
+gh repo set-default idq-org/docmost          # gh PRs go here, not to docmost/docmost
+git config rerere.enabled true               # reuse conflict resolutions across upstream merges
 ```
 
-Il submodule `apps/server/src/ee` punta alla versione Enterprise di Docmost, che è privata: non serve e non va inizializzato.
+The `apps/server/src/ee` submodule points to Docmost's Enterprise edition, which is private: it isn't needed and must not be initialized.
 
-## Regole per le modifiche
+## Rules for changes
 
-- Modifiche piccole, e file nuovi invece di modifiche a file esistenti dove si può: meno conflitti a ogni aggiornamento. Cartelle suggerite per il nostro codice: `apps/server/src/idq/` e `apps/client/src/features/idq-*/`.
-- Niente credenziali né dati dell'associazione nel repo: il fork è pubblico (licenza AGPL-3.0).
-- Le PR vanno verso `idq` di questo repo, mai verso `docmost/docmost`.
-- Tutto rispetta i permessi di spazio di Docmost: ogni funzionalità ha un test con un utente che non vede uno spazio riservato.
-- Prima di cominciare una funzionalità, scrivi un commento sulla sua issue, così evitiamo di lavorare in due sulla stessa cosa.
+- Everything in the repo is in English: code, comments, Markdown files, commit messages and PRs. UI text is written in English in the code, as in Docmost, and its Italian translation lives in our own translation files.
+- Follow [Keeping upstream merges easy](#keeping-upstream-merges-easy).
+- No credentials or association data in the repo: the fork is public (AGPL-3.0 license).
+- PRs go to `idq` in this repo, never to `docmost/docmost`.
+- Everything respects Docmost's space permissions: every feature has a test with a user who can't see a restricted space.
+- Before starting a feature, comment on its issue, so that two people don't work on the same thing.
 
-## Licenze
+## Keeping upstream merges easy
 
-Nel repo convivono due licenze, e vanno rispettate tutte e due.
+Git only reports a conflict when Docmost and we change the same lines. New files never conflict, so the goal is to touch as few Docmost files as possible, with as few lines as possible.
 
-### Codice Enterprise: non si usa
+- **Our code lives in our own folders.** Server: `apps/server/src/idq/`, one subfolder per feature, all registered in `IdqModule`. Client: `apps/client/src/idq/`, one subfolder per feature. Tests: `apps/server/test/idq-*`. Fork docs and workflows: `.github/`.
+- **One hook line per extension point.** When a Docmost file has to know about our code, it gets one import and one line, marked with an `IDQ:` comment, and the actual list of modules, routes or menu items lives in our files. For example `app.module.ts` imports only `IdqModule`, and each server feature registers inside it. Likewise the client router and the settings menu each get a single line that spreads our own list of routes or items, so a new feature only adds to our files.
+- **Leave the code around a hook as it is.** No reformatting, reordering or drive-by fixes in Docmost files: every changed line is a possible conflict.
+- **Database: only our own tables.** Tables are prefixed `idq_`. Migrations live in `apps/server/src/idq/database/migrations` with their own tracking table, so they never interleave with Docmost's. Never add columns to Docmost tables: extra data goes in an `idq_` table that references the Docmost row (for example by `user_id` or `page_id`).
+- **Translations in our own files**, not in `apps/client/public/locales`, which Docmost updates often.
+- **Dependencies**: use what Docmost already depends on when you can. A new dependency changes `package.json` and `pnpm-lock.yaml`. Resolve lockfile conflicts by regenerating the file, as described in [Updates from Docmost](#updates-from-docmost).
+- **Every Docmost file we modify is listed** in [`idq-upstream-files.txt`](idq-upstream-files.txt), with the reason. The `upstream-files` CI check fails when a PR modifies a Docmost file that isn't listed, so each new one is a deliberate choice that shows up in review. When we stop modifying a file, remove it from the list.
 
-Queste cartelle sono sotto la *Docmost Enterprise License*:
-- `apps/server/src/ee` (submodule privato, non inizializzato);
+## Licenses
+
+Two licenses coexist in the repo, and both must be respected.
+
+### Enterprise code: not used
+
+These folders are under the *Docmost Enterprise License*:
+- `apps/server/src/ee` (private submodule, not initialized);
 - `apps/client/src/ee`;
 - `packages/ee`;
 - `packages/base-formula`.
 
-Quel codice si può usare in produzione solo con un abbonamento, e anche le modifiche restano di Docmost. Quindi:
+That code can be used in production only with a subscription, and modifications to it also belong to Docmost. Therefore:
 
-- non si apre, non si copia, non si adatta e non si importa niente da quelle cartelle. Chi realizza una funzionalità simile a una delle edizioni a pagamento (kanban, chiavi API, OAuth, MCP) la scrive da zero, senza guardare quel codice;
-- non si creano file in percorsi `ee/` e non si sostituiscono moduli Enterprise;
-- non si toccano i controlli di licenza (`LicenseCheckService`, `hasFeature`, feature flag) né le impostazioni legate alle edizioni a pagamento (per esempio `mcpEnabled`), e non si sblocca nessuna funzione a pagamento;
-- la nostra immagine si costruisce dallo stesso codice delle immagini Community ufficiali: il codice Enterprise del client c'è, ma resta spento senza licenza, come in quelle, e non va mai attivato né modificato.
+- don't open, copy, adapt or import anything from those folders. Whoever builds a feature similar to one of the paid editions (kanban, API keys, OAuth, MCP) writes it from scratch, without looking at that code;
+- don't create files under `ee/` paths and don't replace Enterprise modules;
+- don't touch license checks (`LicenseCheckService`, `hasFeature`, feature flags) or settings tied to the paid editions (for example `mcpEnabled`), and don't unlock any paid feature;
+- our image is built from the same code as the official Community images: the client's Enterprise code is there, but it stays off without a license, as in those images, and must never be enabled or modified.
 
-### Core AGPL-3.0: si usa e si modifica, con i suoi obblighi
+### AGPL-3.0 core: used and modified, with its obligations
 
-- Il nostro codice è sotto AGPL-3.0, come il repo.
-- Si conservano i file di licenza e le note di copyright di Docmost e delle librerie.
-- Appena l'app che gira sulla VPS è modificata, l'interfaccia deve offrire a chi la usa il link al codice sorgente (sezione 13 dell'AGPL): vedi l'issue [#8](https://github.com/idq-org/docmost/issues/8).
+- Our code is under AGPL-3.0, like the repo.
+- Keep the license files and copyright notices of Docmost and of the libraries.
+- As soon as the app running on the VPS is modified, its interface must offer users a link to the source code (AGPL section 13): see issue [#8](https://github.com/idq-org/docmost/issues/8).
 
-### Marchio e fonti
+### Trademark and sources
 
-- «Docmost» è il marchio di Docmost, Inc. Le nostre aggiunte sono «di IDQ» e non si presentano come funzioni ufficiali Docmost. Il loro logo non si usa per le nostre funzionalità, e il nome si usa solo per descrivere (per esempio «compatibile con…»).
-- Per le compatibilità si usa solo la documentazione pubblica di Docmost.
-- Librerie e servizi terzi devono avere licenze compatibili (MIT, Apache-2.0…), e se ne conservano le note.
+- "Docmost" is a trademark of Docmost, Inc. Our additions are named as IDQ features (for example "IDQ MCP") and are not presented as official Docmost features. Don't use their logo for our features, and use the name only descriptively (for example "compatible with…").
+- For compatibility, use only Docmost's public documentation.
+- Third-party libraries and services must have compatible licenses (MIT, Apache-2.0…), and their notices are kept.
 
-Ogni PR che aggiunge funzionalità dichiara nella descrizione di aver rispettato questa sezione. In review si controlla che non tocchi percorsi `ee/` né controlli di licenza.
+Every PR that adds features states in its description that it complies with this section. Review checks that it doesn't touch `ee/` paths or license checks.
 
-## Funzionalità in programma
+## Planned features
 
-Le issue con l'etichetta [`idq`](https://github.com/idq-org/docmost/issues?q=is%3Aopen+label%3Aidq), nell'ordine proposto. Si può lavorare in parallelo su più issue, se c'è chi ci lavora.
+Issues labelled [`idq`](https://github.com/idq-org/docmost/issues?q=is%3Aopen+label%3Aidq), in the proposed order. Several issues can be worked on in parallel, if there are people to work on them.
 
-1. [#8](https://github.com/idq-org/docmost/issues/8): link al codice sorgente nell'interfaccia, prima o insieme alla prima funzionalità
-2. [#5](https://github.com/idq-org/docmost/issues/5): MCP integrato, compatibile con i client dell'MCP di Docmost (prima le chiavi API, poi `/mcp`, poi OAuth)
-3. [#3](https://github.com/idq-org/docmost/issues/3): bacheca kanban dei task, con i materiali collegati
-4. [#12](https://github.com/idq-org/docmost/issues/12): scadenze e promemoria su task e pagine (si può fare anche in parallelo a #3)
-5. [#4](https://github.com/idq-org/docmost/issues/4): mappa dei soci in pixel art
+1. [#8](https://github.com/idq-org/docmost/issues/8): link to the source code in the interface, before or together with the first feature
+2. [#5](https://github.com/idq-org/docmost/issues/5): built-in MCP, compatible with clients of the Docmost MCP (API keys first, then `/mcp`, then OAuth)
+3. [#3](https://github.com/idq-org/docmost/issues/3): kanban board for tasks, with linked materials
+4. [#12](https://github.com/idq-org/docmost/issues/12): deadlines and reminders on tasks and pages (can be done in parallel with #3)
+5. [#4](https://github.com/idq-org/docmost/issues/4): members map in pixel art

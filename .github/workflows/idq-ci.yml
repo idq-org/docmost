@@ -1,11 +1,13 @@
 name: CI
 
-# Verifica che l'immagine Docker si costruisca, prima che una PR entri in idq.
-# Il check "docker-build" è obbligatorio nel ruleset di idq.
+# Checks a PR before it goes into idq:
+# - docker-build: the Docker image builds. This check is required by the idq ruleset.
+# - upstream-files: we only modify the Docmost files listed in
+#   .github/idq-upstream-files.txt.
 #
-# Le PR aperte da Sync upstream non fanno partire workflow (le crea il GITHUB_TOKEN):
-# per quelle Sync upstream lancia questo workflow a mano sul commit di main e il
-# risultato viene scritto come status "docker-build" su quel commit.
+# PRs opened by Sync upstream don't trigger workflows (the GITHUB_TOKEN creates them):
+# for those, Sync upstream runs this workflow by hand on main's head commit, and the
+# result is written as a "docker-build" status on that commit.
 
 on:
   pull_request:
@@ -13,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: "Commit da verificare (es. la testa di main per la PR di sync)"
+        description: "Commit to check (e.g. main's head for the sync PR)"
         required: true
 
 permissions:
@@ -32,7 +34,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Segna il commit come in verifica
+      - name: Mark the commit as pending
         if: github.event_name == 'workflow_dispatch'
         run: gh api "repos/$GH_REPO/statuses/${{ inputs.sha }}" -f state=pending -f context=docker-build -f target_url="$RUN_URL" >/dev/null
 
@@ -42,7 +44,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build dell'immagine
+      - name: Build the image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -50,8 +52,42 @@ jobs:
           cache-from: type=gha,scope=idq-ci
           cache-to: type=gha,scope=idq-ci,mode=max
 
-      - name: Scrivi il risultato sul commit
+      - name: Write the result on the commit
         if: always() && github.event_name == 'workflow_dispatch'
         run: |
           state=$([ "${{ job.status }}" = success ] && echo success || echo failure)
           gh api "repos/$GH_REPO/statuses/${{ inputs.sha }}" -f state="$state" -f context=docker-build -f target_url="$RUN_URL" >/dev/null
+
+  upstream-files:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The merge base with main is a pure Docmost commit: the files that the PR
+      # merge result modifies or deletes compared to it are the Docmost files we
+      # change. Files we add never conflict, so they don't count.
+      - name: Check which Docmost files we modify
+        run: |
+          list=.github/idq-upstream-files.txt
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          base=$(git merge-base origin/main HEAD)
+          git diff --name-only --no-renames --diff-filter=MD "$base" HEAD | sort -u > "$RUNNER_TEMP/modified"
+          sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$list" | sort -u > "$RUNNER_TEMP/listed"
+
+          echo "Docmost files modified by idq with this PR (compared to docmost/docmost@${base:0:7}):"
+          sed 's/^/  /' "$RUNNER_TEMP/modified"
+
+          comm -13 "$RUNNER_TEMP/modified" "$RUNNER_TEMP/listed" | while read -r f; do
+            echo "::warning file=$list::$f is listed but no longer modified: remove it from the list"
+          done
+
+          unlisted=$(comm -23 "$RUNNER_TEMP/modified" "$RUNNER_TEMP/listed")
+          if [ -n "$unlisted" ]; then
+            for f in $unlisted; do
+              echo "::error file=$f::Docmost file modified but not listed in $list"
+            done
+            exit 1
+          fi
