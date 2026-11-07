@@ -4,7 +4,6 @@
       "dependsOn": [
         "^build"
       ],
-      "inputs": ["default", "^default", { "env": "IDQ_SOURCE_COMMIT" }],
       "cache": true
     },
     "start:dev": {
