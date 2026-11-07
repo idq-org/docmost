@@ -5,25 +5,28 @@ name: CI
 # - upstream-files: we only modify the Docmost files listed in
 #   .github/idq-upstream-files.txt.
 #
-# PRs opened by Sync upstream don't trigger workflows (the GITHUB_TOKEN creates them):
-# for those, Sync upstream runs this workflow by hand on main's head commit, and the
-# result is written as a "docker-build" status on that commit.
+# Both check the PR merge result, that is idq with the PR merged in. Sync upstream
+# PRs opened with GITHUB_TOKEN don't trigger workflows: for those, Sync upstream
+# runs this workflow by hand with the PR number, and the result is written as a
+# "docker-build" status on the PR head commit.
 
 on:
   pull_request:
     branches: [idq]
   workflow_dispatch:
     inputs:
-      sha:
-        description: "Commit to check (e.g. main's head for the sync PR)"
+      pr:
+        description: "Number of the PR to check (e.g. the Sync upstream PR)"
+        type: number
         required: true
 
 permissions:
   contents: read
+  pull-requests: read
   statuses: write
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || inputs.sha }}
+  group: ci-${{ github.event.pull_request.number || inputs.pr }}
   cancel-in-progress: true
 
 jobs:
@@ -32,37 +35,66 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      PR: ${{ inputs.pr }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Mark the commit as pending
+      # GitHub computes the merge ref asynchronously and doesn't update it while
+      # the PR has conflicts: wait for it and refuse a conflicting PR.
+      - name: Find the PR head and mark it as pending
+        id: pr
         if: github.event_name == 'workflow_dispatch'
-        run: gh api "repos/$GH_REPO/statuses/${{ inputs.sha }}" -f state=pending -f context=docker-build -f target_url="$RUN_URL" >/dev/null
+        run: |
+          sha=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GH_REPO/statuses/$sha" -f state=pending -f context=docker-build -f target_url="$RUN_URL" >/dev/null
+          for _ in $(seq 20); do
+            mergeable=$(gh pr view "$PR" --json mergeable --jq .mergeable)
+            [ "$mergeable" != UNKNOWN ] && break
+            sleep 5
+          done
+          if [ "$mergeable" != MERGEABLE ]; then
+            echo "::error::PR #$PR can't be merged automatically ($mergeable): resolve the conflicts as described in .github/README.md"
+            exit 1
+          fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.sha || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr) || github.ref }}
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Check that the merge ref is up to date with the PR head
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          # The merge commit's parents are idq and the PR head.
+          if ! git cat-file -p HEAD | grep -qx "parent $HEAD_SHA"; then
+            echo "::error::refs/pull/$PR/merge doesn't contain the PR head $HEAD_SHA yet: rerun the workflow in a minute"
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build the image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
           cache-from: type=gha,scope=idq-ci
           cache-to: type=gha,scope=idq-ci,mode=max
 
-      - name: Write the result on the commit
-        if: always() && github.event_name == 'workflow_dispatch'
+      - name: Write the result on the PR head
+        if: always() && github.event_name == 'workflow_dispatch' && steps.pr.outputs.sha != ''
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
         run: |
           state=$([ "${{ job.status }}" = success ] && echo success || echo failure)
-          gh api "repos/$GH_REPO/statuses/${{ inputs.sha }}" -f state="$state" -f context=docker-build -f target_url="$RUN_URL" >/dev/null
+          gh api "repos/$GH_REPO/statuses/$HEAD_SHA" -f state="$state" -f context=docker-build -f target_url="$RUN_URL" >/dev/null
 
   upstream-files:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
