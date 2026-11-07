@@ -1,7 +1,7 @@
 import React from "react";
 import { Group, Text } from "@mantine/core";
 import classes from "./auth.module.css";
-import { SourceLink } from "@/idq/source-link/source-link";
+import { SourceLink } from "@/idq/source-link/source-link"; // IDQ: source code link (AGPL-3.0)
 
 type AuthLayoutProps = {
   children: React.ReactNode;
@@ -22,6 +22,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
         </Text>
       </Group>
       <main>{children}</main>
+      {/* IDQ: source code link (AGPL-3.0) */}
       <SourceLink />
     </>
   );
