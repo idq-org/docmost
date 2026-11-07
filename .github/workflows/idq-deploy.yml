@@ -1,6 +1,6 @@
 name: Deploy
 
-# On every push to idq, updates https://app.informaticidiquartiere.org.
+# On every push to idq (except .github-only changes), updates https://app.informaticidiquartiere.org.
 # On the VPS, the DEPLOY_SSH_KEY key can only run /srv/docmost/deploy.sh
 # (forced command in authorized_keys), which brings /srv/docmost/src to origin/idq
 # and rebuilds the containers. Secrets: DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS, DEPLOY_HOST.
@@ -8,6 +8,9 @@ name: Deploy
 on:
   push:
     branches: [idq]
+    # Fork docs and workflows don't change the app: no need to rebuild it.
+    paths-ignore:
+      - ".github/**"
   workflow_dispatch:
 
 permissions:

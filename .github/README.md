@@ -36,7 +36,16 @@ Conflicts can only happen in the Docmost files we modify, which are all listed i
 - `git grep -n "IDQ:"` lists our hook lines in Docmost files;
 - don't merge `pnpm-lock.yaml` by hand: take Docmost's version and regenerate it with `git checkout --theirs pnpm-lock.yaml && pnpm install --lockfile-only && git add pnpm-lock.yaml`.
 
-If the action fails with an error about `workflows` permissions, Docmost changed its own files in `.github/workflows` and the action's token can't copy them. In that case update `main` with your own account (it needs the `workflow` scope in `gh`):
+### The `SYNC_TOKEN` secret
+
+The action uses the `SYNC_TOKEN` repository secret: a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with resource owner `idq-org`, access to `idq-org/docmost` only, and these repository permissions set to *Read and write*: **Contents**, **Pull requests**, **Workflows**. Store it in *Settings → Secrets and variables → Actions*, and set a calendar reminder for its expiry date.
+
+Without the secret the action falls back to the default `GITHUB_TOKEN`, which has two limits:
+
+- GitHub never lets it update files in `.github/workflows`, so the sync fails whenever Docmost changes its own workflows (the error mentions `workflows` permission);
+- the PRs it opens don't trigger CI, so the action starts CI on the PR by hand.
+
+If the sync fails anyway (missing or expired token), update `main` with your own account (it needs the `workflow` scope in `gh`), then rerun the action so it opens the PR:
 
 ```sh
 gh repo sync idq-org/docmost --branch main
@@ -46,10 +55,10 @@ gh repo sync idq-org/docmost --branch main
 
 Docmost runs at https://app.informaticidiquartiere.org, on the Hostinger VPS, in `/srv/docmost` (compose, `.env` with the secrets, nightly database backups in `backups/`).
 
-- [`CI`](workflows/idq-ci.yml) runs on every PR to `idq`:
-  - `docker-build` builds the Docker image. It is required to merge. For Sync upstream PRs, Sync upstream starts it itself.
+- [`CI`](workflows/idq-ci.yml) runs on every PR to `idq`, on the PR merge result (`idq` with the PR merged in):
+  - `docker-build` builds the Docker image. It is required to merge. For Sync upstream PRs opened without `SYNC_TOKEN`, Sync upstream starts it itself (or by hand: *Actions → CI → Run workflow* with the PR number).
   - `upstream-files` fails if the PR modifies a Docmost file that isn't listed in [`idq-upstream-files.txt`](idq-upstream-files.txt) (see [Keeping upstream merges easy](#keeping-upstream-merges-easy)).
-- [`Deploy`](workflows/idq-deploy.yml) runs on every push to `idq` (that is, on every merge) and runs `/srv/docmost/deploy.sh` on the VPS: it brings the code to `origin/idq` and rebuilds the containers. It can be rerun by hand from *Actions → Deploy → Run workflow*.
+- [`Deploy`](workflows/idq-deploy.yml) runs on every push to `idq` (that is, on every merge), except when only files in `.github/` change, and runs `/srv/docmost/deploy.sh` on the VPS: it brings the code to `origin/idq` and rebuilds the containers. It can be rerun by hand from *Actions → Deploy → Run workflow*.
 
 Never edit `/srv/docmost/src` by hand on the VPS: every deploy resets it to `origin/idq`.
 
