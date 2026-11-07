@@ -12,7 +12,6 @@ import {
 import {
   IconArrowsExchange,
   IconCalendarEvent,
-  IconCheck,
   IconDots,
   IconPaperclip,
 } from "@tabler/icons-react";
@@ -21,15 +20,15 @@ import { useTranslation } from "react-i18next";
 import clsx from "clsx";
 import { CustomAvatar } from "@/components/ui/custom-avatar.tsx";
 import { buildPageUrl } from "@/features/page/page.utils.ts";
-import { IBoardTask, ITaskAssignee, TASK_STATUSES, TaskStatus } from "../types";
+import { IBoardTask, ITaskAssignee, TaskStatus } from "../types";
 import {
   formatDeadline,
   isOverdue,
   labelValueText,
   priorityColor,
-  statusColor,
-  statusName,
 } from "../task-display";
+import { useTaskSettings } from "../hooks/use-task-settings";
+import { StatusMenuItems } from "./status-menu-items";
 import classes from "./task-board.module.css";
 
 type TaskCardProps = {
@@ -51,6 +50,7 @@ export function TaskCard({
 }: TaskCardProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { priorities } = useTaskSettings();
   const url = buildPageUrl(spaceSlug, task.slugId, task.title ?? undefined);
   const title = task.title || t("Untitled");
   const overdue = isOverdue(task.nextDeadline);
@@ -106,7 +106,7 @@ export function TaskCard({
           <Badge
             size="sm"
             variant="light"
-            color={priorityColor(task.priority)}
+            color={priorityColor(task.priority, priorities)}
             radius="sm"
           >
             {labelValueText(task.priority)}
@@ -210,26 +210,7 @@ function MoveMenu({
             {t("Move to")}
           </Group>
         </Menu.Label>
-        {TASK_STATUSES.map((status) => (
-          <Menu.Item
-            key={status}
-            disabled={task.status === status}
-            leftSection={
-              <span
-                className={classes.dot}
-                style={{
-                  background: `var(--mantine-color-${statusColor(status)}-6)`,
-                }}
-              />
-            }
-            rightSection={
-              task.status === status ? <IconCheck size={14} /> : undefined
-            }
-            onClick={() => onMove(status)}
-          >
-            {statusName(status, t)}
-          </Menu.Item>
-        ))}
+        <StatusMenuItems current={task.status} onSelect={onMove} />
       </Menu.Dropdown>
     </Menu>
   );

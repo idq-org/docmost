@@ -27,6 +27,7 @@ import {
   useUnwatchSpaceMutation,
 } from "@/features/space/queries/space-watcher-query.ts";
 import classes from "./space-sidebar.module.css";
+import { IdqSpaceSidebarItems } from "@/idq/space-sidebar-items"; // IDQ: our sidebar entries
 import React from "react";
 import { useAtom } from "jotai";
 import { useTreeMutation } from "@/features/page/tree/hooks/use-tree-mutation.ts";
@@ -61,7 +62,6 @@ import { useHasFeature } from "@/ee/hooks/use-feature";
 import { useUpgradeLabel } from "@/ee/hooks/use-upgrade-label";
 import { Feature } from "@/ee/features";
 import { ErrorBoundary } from "react-error-boundary";
-import { IdqSpaceSidebarItems } from "@/idq/space-sidebar-items"; // IDQ: our sidebar entries
 
 export function SpaceSidebar() {
   const { t } = useTranslation();

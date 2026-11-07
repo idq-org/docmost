@@ -2,12 +2,20 @@ import i18n from "@/i18n";
 
 // Italian translations of the task board. They live here, not in
 // public/locales, so they never conflict with Docmost's translation updates.
-// The keys are the English text, as in the rest of the app.
+// The keys are the English text, as in the rest of the app. On a key that
+// Docmost translates too, Docmost's translation is used.
 const it: Record<string, string> = {
+  // Board
   Board: "Bacheca",
   "Tasks of {{space}}": "Task di {{space}}",
   "Open board": "Apri la bacheca",
   "Failed to load the board": "Caricamento della bacheca non riuscito",
+  "The space may not exist, or you may not have access to it.":
+    "Lo spazio potrebbe non esistere, oppure non hai accesso.",
+  "No tasks yet. Create one in a column, or add a status label to an existing page.":
+    "Ancora nessun task. Creane uno in una colonna, oppure aggiungi un'etichetta di stato a una pagina esistente.",
+  "There are no tasks in this space yet.":
+    "In questo spazio non ci sono ancora task.",
 
   // Columns
   "To do": "Da fare",
@@ -35,20 +43,8 @@ const it: Record<string, string> = {
   "Task title": "Titolo del task",
   "Enter to create, Esc to cancel": "Invio per creare, Esc per annullare",
   "Failed to create the task": "Creazione del task non riuscita",
-  "No tasks yet. Create one in a column, or add a label such as stato-da-fare to an existing page.":
-    "Ancora nessun task. Creane uno in una colonna, oppure aggiungi a una pagina esistente un'etichetta come stato-da-fare.",
-  "There are no tasks in this space yet.":
-    "In questo spazio non ci sono ancora task.",
 
-  // Filters
-  Priority: "Priorità",
-  Area: "Area",
-  "Person in charge": "Referente",
-  "My tasks": "I miei task",
-  "Clear filters": "Togli i filtri",
-  "No tasks match the filters.": "Nessun task corrisponde ai filtri.",
-
-  // Sections of a new task page, as in the association's task pages
+  // Sections of a new task page
   Field: "Campo",
   Value: "Valore",
   Deadline: "Scadenza",
@@ -57,6 +53,14 @@ const it: Record<string, string> = {
   Steps: "Passi",
   "First step": "Primo passo",
   References: "Riferimenti",
+
+  // Filters
+  Priority: "Priorità",
+  Area: "Area",
+  "Person in charge": "Referente",
+  "My tasks": "I miei task",
+  "Clear filters": "Togli i filtri",
+  "No tasks match the filters.": "Nessun task corrisponde ai filtri.",
 
   // Task fields
   "Edit task": "Modifica il task",
@@ -76,15 +80,30 @@ const it: Record<string, string> = {
   Save: "Salva",
   "Failed to save the task": "Salvataggio del task non riuscito",
 
-  // Who each ref- label stands for (admins)
-  "Choose who each ref- label stands for. Without a choice, the label is matched with a member's name or email, when only one member fits.":
-    "Scegli chi è ogni etichetta ref-. Senza una scelta, l'etichetta viene abbinata al nome o alla mail di un membro, se ce n'è uno solo che corrisponde.",
+  // Board settings (workspace admins)
+  "Board settings": "Impostazioni della bacheca",
+  Labels: "Etichette",
+  "The board reads tasks from page labels. Changing these words doesn't rename the labels already on pages.":
+    "La bacheca legge i task dalle etichette delle pagine. Cambiare queste parole non rinomina le etichette già presenti.",
+  Prefixes: "Prefissi",
+  Status: "Stato",
+  Columns: "Colonne",
+  "The first value is written when a card moves; the others are also read.":
+    "Il primo valore si scrive quando una card si sposta; anche gli altri vengono letti.",
+  Example: "Esempio",
+  Priorities: "Priorità",
+  "Most urgent first: the board orders and colors them.":
+    "Dalla più urgente: la bacheca le ordina e le colora così.",
+  "Failed to save the settings": "Salvataggio delle impostazioni non riuscito",
+  "Choose who each person-in-charge label stands for. Without a choice, the label is matched with a member's name or email, when only one member fits.":
+    "Scegli chi è ogni etichetta di referente. Senza una scelta, l'etichetta viene abbinata al nome o alla mail di un membro, se ce n'è uno solo che corrisponde.",
   Label: "Etichetta",
   Member: "Membro",
-  "Member for ref-{{value}}": "Membro per ref-{{value}}",
+  "Member for {{label}}": "Membro per {{label}}",
   "Automatic: {{name}}": "Automatico: {{name}}",
   "No member: shown as a name": "Nessun membro: si vede come nome",
-  "There are no ref- labels yet.": "Non ci sono ancora etichette ref-.",
+  "No person-in-charge labels yet.":
+    "Non ci sono ancora etichette di referenti.",
   "Failed to save the person in charge":
     "Salvataggio del referente non riuscito",
 
@@ -110,7 +129,7 @@ const it: Record<string, string> = {
   Title: "Titolo",
   "Optional: shown instead of the address":
     "Facoltativo: si vede al posto dell'indirizzo",
-  "Add link": "Aggiungi il link",
+  "Add the link": "Aggiungi il link",
   "Enter a web address that starts with https://":
     "Inserisci un indirizzo web che inizia con https://",
   "Failed to link the material": "Collegamento del materiale non riuscito",

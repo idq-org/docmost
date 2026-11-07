@@ -1,9 +1,7 @@
-import type { ReactNode } from "react";
 import {
   ActionIcon,
   Anchor,
   Badge,
-  Button,
   Divider,
   Group,
   Menu,
@@ -14,34 +12,24 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { useQuery } from "@tanstack/react-query";
 import {
   IconCalendarEvent,
-  IconCheck,
   IconChevronDown,
-  IconExternalLink,
-  IconFileDescription,
   IconLayoutKanban,
-  IconPaperclip,
   IconPencil,
-  IconPlus,
-  IconX,
 } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CustomAvatar } from "@/components/ui/custom-avatar.tsx";
-import { buildPageUrl } from "@/features/page/page.utils.ts";
-import { getPageLabels } from "@/features/label/services/label-service.ts";
-import { getFileUrl } from "@/lib/config.ts";
 import {
   usePageTaskQuery,
-  useRemoveTaskLinkMutation,
   useSetTaskStatusMutation,
 } from "../queries/idq-task-query";
-import { IPageTaskInfo, ITaskLink, TASK_STATUSES, TaskStatus } from "../types";
+import { useRefreshOnLabelChange } from "../hooks/use-refresh-on-label-change";
+import { useTaskSettings } from "../hooks/use-task-settings";
+import { IPageTaskInfo, TaskStatus } from "../types";
 import {
   formatDeadline,
-  formatFileSize,
   isOverdue,
   labelValueText,
   priorityColor,
@@ -49,8 +37,10 @@ import {
   statusName,
   taskBoardUrl,
 } from "../task-display";
-import { AddMaterialModal } from "./add-material-modal";
+import { StatusMenuItems } from "./status-menu-items";
 import { TaskFieldsModal } from "./task-fields-modal";
+import { LinkedMaterials } from "./linked-materials";
+import { UsedInTasks } from "./used-in-tasks";
 import classes from "./task-panel.module.css";
 import "../i18n";
 
@@ -61,41 +51,44 @@ type TaskPagePanelProps = {
 };
 
 /**
- * Box under the page title: task fields and linked materials when the page
- * is a task, and the tasks that use the page. Renders nothing otherwise.
+ * Box under the page title: the task fields and linked materials when the
+ * page is a task, and the tasks that use the page. Nothing otherwise.
  */
 export function TaskPagePanel({
   pageId,
   spaceId,
   spaceSlug,
 }: TaskPagePanelProps) {
-  // Reload when the labels change in the page details (same cache entry as
-  // Docmost's labels section; this observer never fetches by itself).
-  const { dataUpdatedAt: labelsVersion } = useQuery({
-    queryKey: ["page-labels", pageId],
-    queryFn: () => getPageLabels({ pageId, limit: 100 }),
-    enabled: false,
-  });
-  const { data: info } = usePageTaskQuery(pageId, String(labelsVersion));
+  useRefreshOnLabelChange(pageId);
+  const { data: info } = usePageTaskQuery(pageId);
 
-  if (!info || info.pageId !== pageId) return null;
-  if (!info.isTask && info.usedIn.length === 0) return null;
+  if (!info || (!info.task && info.usedIn.length === 0)) return null;
 
   return (
     <Paper
       withBorder
       radius="md"
       p="sm"
+      // print-hide: Docmost's class for what a printed page leaves out.
       className={`print-hide ${classes.panel}`}
     >
       <Stack gap="xs">
-        {info.isTask && info.task && (
-          <TaskSection info={info} spaceId={spaceId} spaceSlug={spaceSlug} />
+        {info.task && (
+          <>
+            <TaskFields info={info} spaceId={spaceId} spaceSlug={spaceSlug} />
+            <LinkedMaterials
+              taskPageId={info.pageId}
+              spaceId={spaceId}
+              spaceSlug={spaceSlug}
+              links={info.links}
+              canEdit={info.canEdit}
+            />
+          </>
         )}
         {info.usedIn.length > 0 && (
           <>
-            {info.isTask && <Divider />}
-            <UsedIn info={info} />
+            {info.task && <Divider />}
+            <UsedInTasks tasks={info.usedIn} />
           </>
         )}
       </Stack>
@@ -103,7 +96,7 @@ export function TaskPagePanel({
   );
 }
 
-function TaskSection({
+function TaskFields({
   info,
   spaceId,
   spaceSlug,
@@ -113,153 +106,100 @@ function TaskSection({
   spaceSlug: string;
 }) {
   const { t, i18n } = useTranslation();
-  const [opened, { open, close }] = useDisclosure(false);
+  const { priorities } = useTaskSettings();
   const [editing, { open: openEdit, close: closeEdit }] = useDisclosure(false);
   const task = info.task;
   const overdue = isOverdue(task.nextDeadline);
+  const editLabel = t("Edit priority, area and people in charge");
 
   return (
-    <>
-      <Group gap="xs" wrap="wrap">
-        <StatusControl
-          pageId={info.pageId}
-          spaceId={spaceId}
-          status={task.status}
-          statusValue={task.statusValue}
-          canEdit={info.canEdit}
-        />
+    <Group gap="xs" wrap="wrap">
+      <StatusControl
+        pageId={info.pageId}
+        spaceId={spaceId}
+        status={task.status}
+        statusValue={task.statusValue}
+        canEdit={info.canEdit}
+      />
 
-        {task.priority && (
+      {task.priority && (
+        <Badge
+          variant="light"
+          radius="sm"
+          color={priorityColor(task.priority, priorities)}
+        >
+          {t("Priority")}: {labelValueText(task.priority)}
+        </Badge>
+      )}
+
+      {task.areas.map((area) => (
+        <Badge key={area} variant="outline" color="gray" radius="sm">
+          {labelValueText(area)}
+        </Badge>
+      ))}
+
+      {task.nextDeadline && (
+        <Tooltip
+          label={task.nextDeadline.title ?? t("Next deadline")}
+          withArrow
+        >
           <Badge
-            variant="light"
             radius="sm"
-            color={priorityColor(task.priority)}
+            variant={overdue ? "filled" : "light"}
+            color={overdue ? "red" : "gray"}
+            leftSection={<IconCalendarEvent size={12} />}
           >
-            {t("Priority")}: {labelValueText(task.priority)}
+            {formatDeadline(task.nextDeadline, i18n.language)}
           </Badge>
-        )}
+        </Tooltip>
+      )}
 
-        {task.areas.map((area) => (
-          <Badge key={area} variant="outline" color="gray" radius="sm">
-            {labelValueText(area)}
-          </Badge>
-        ))}
+      {task.assignees.map((a) => (
+        <Group key={a.value} gap={4} wrap="nowrap">
+          <CustomAvatar
+            avatarUrl={a.user?.avatarUrl ?? undefined}
+            name={a.name}
+            size={20}
+            radius="xl"
+          />
+          <Text size="sm">{a.name}</Text>
+        </Group>
+      ))}
+      {task.assignees.length === 0 && (
+        <Text size="sm" c="dimmed">
+          {t("To be assigned")}
+        </Text>
+      )}
 
-        {task.nextDeadline && (
-          <Tooltip
-            label={task.nextDeadline.title ?? t("Next deadline")}
-            withArrow
-          >
-            <Badge
-              radius="sm"
-              variant={overdue ? "filled" : "light"}
-              color={overdue ? "red" : "gray"}
-              leftSection={<IconCalendarEvent size={12} />}
-            >
-              {formatDeadline(task.nextDeadline, i18n.language)}
-            </Badge>
-          </Tooltip>
-        )}
-
-        {task.assignees.map((a) => (
-          <Group key={a.value} gap={4} wrap="nowrap">
-            <CustomAvatar
-              avatarUrl={a.user?.avatarUrl ?? undefined}
-              name={a.name}
-              size={20}
-              radius="xl"
-            />
-            <Text size="sm">{a.name}</Text>
-          </Group>
-        ))}
-        {task.assignees.length === 0 && (
-          <Text size="sm" c="dimmed">
-            {t("To be assigned")}
-          </Text>
-        )}
-
-        {info.canEdit && (
-          <Tooltip
-            label={t("Edit priority, area and people in charge")}
-            withArrow
-          >
+      {info.canEdit && (
+        <>
+          <Tooltip label={editLabel} withArrow>
             <ActionIcon
               variant="subtle"
               color="gray"
               size="sm"
-              aria-label={t("Edit priority, area and people in charge")}
+              aria-label={editLabel}
               onClick={openEdit}
             >
               <IconPencil size={14} />
             </ActionIcon>
           </Tooltip>
-        )}
-
-        <Anchor
-          component={Link}
-          to={taskBoardUrl(spaceSlug)}
-          size="xs"
-          ml="auto"
-        >
-          <Group gap={4} wrap="nowrap">
-            <IconLayoutKanban size={14} />
-            {t("Open board")}
-          </Group>
-        </Anchor>
-      </Group>
-
-      <Group justify="space-between" mt={4}>
-        <Text size="xs" fw={600} c="dimmed" className={classes.sectionTitle}>
-          {t("Linked materials")}
-        </Text>
-        {info.canEdit && (
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            leftSection={<IconPlus size={14} />}
-            onClick={open}
-          >
-            {t("Add")}
-          </Button>
-        )}
-      </Group>
-
-      {info.links.length === 0 ? (
-        <Text size="sm" c="dimmed">
-          {t("No linked materials yet.")}
-        </Text>
-      ) : (
-        <Stack gap={0}>
-          {info.links.map((link) => (
-            <LinkRow
-              key={link.id}
-              link={link}
-              taskPageId={info.pageId}
-              currentSpaceSlug={spaceSlug}
-              canEdit={info.canEdit}
-            />
-          ))}
-        </Stack>
+          <TaskFieldsModal
+            info={info}
+            spaceId={spaceId}
+            opened={editing}
+            onClose={closeEdit}
+          />
+        </>
       )}
 
-      {info.canEdit && (
-        <TaskFieldsModal
-          info={info}
-          spaceId={spaceId}
-          opened={editing}
-          onClose={closeEdit}
-        />
-      )}
-
-      {info.canEdit && (
-        <AddMaterialModal
-          taskPageId={info.pageId}
-          spaceId={spaceId}
-          opened={opened}
-          onClose={close}
-        />
-      )}
-    </>
+      <Anchor component={Link} to={taskBoardUrl(spaceSlug)} size="xs" ml="auto">
+        <Group gap={4} wrap="nowrap">
+          <IconLayoutKanban size={14} />
+          {t("Open board")}
+        </Group>
+      </Anchor>
+    </Group>
   );
 }
 
@@ -304,169 +244,12 @@ function StatusControl({
         </UnstyledButton>
       </Menu.Target>
       <Menu.Dropdown>
-        {TASK_STATUSES.map((s) => (
-          <Menu.Item
-            key={s}
-            disabled={s === status || setStatus.isPending}
-            rightSection={s === status ? <IconCheck size={14} /> : undefined}
-            onClick={() => setStatus.mutate({ pageId, status: s })}
-          >
-            {statusName(s, t)}
-          </Menu.Item>
-        ))}
+        <StatusMenuItems
+          current={status}
+          disabled={setStatus.isPending}
+          onSelect={(next) => setStatus.mutate({ pageId, status: next })}
+        />
       </Menu.Dropdown>
     </Menu>
-  );
-}
-
-function LinkRow({
-  link,
-  taskPageId,
-  currentSpaceSlug,
-  canEdit,
-}: {
-  link: ITaskLink;
-  taskPageId: string;
-  currentSpaceSlug: string;
-  canEdit: boolean;
-}) {
-  const { t } = useTranslation();
-  const remove = useRemoveTaskLinkMutation(taskPageId);
-
-  let icon = <IconExternalLink size={16} />;
-  let target: ReactNode;
-  let detail: string | null = null;
-
-  if (link.type === "page" && link.page) {
-    icon = link.page.icon ? (
-      <Text size="sm">{link.page.icon}</Text>
-    ) : (
-      <IconFileDescription size={16} />
-    );
-    target = (
-      <Text
-        component={Link}
-        to={buildPageUrl(
-          link.page.spaceSlug ?? undefined,
-          link.page.slugId,
-          link.page.title ?? undefined,
-        )}
-        size="sm"
-        truncate
-        className={classes.linkTitle}
-      >
-        {link.page.title || t("Untitled")}
-      </Text>
-    );
-    if (link.page.spaceSlug !== currentSpaceSlug) {
-      detail = link.page.spaceName;
-    }
-  } else if (link.type === "attachment" && link.attachment) {
-    icon = <IconPaperclip size={16} />;
-    target = (
-      <Text
-        component="a"
-        href={getFileUrl(
-          `/api/files/${link.attachment.id}/${encodeURIComponent(link.attachment.fileName)}`,
-        )}
-        target="_blank"
-        rel="noopener"
-        size="sm"
-        truncate
-        className={classes.linkTitle}
-      >
-        {link.attachment.fileName}
-      </Text>
-    );
-    if (link.attachment.fileSize !== null) {
-      detail = formatFileSize(link.attachment.fileSize);
-    }
-  } else if (link.url) {
-    target = (
-      <Text
-        component="a"
-        href={link.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        size="sm"
-        truncate
-        className={classes.linkTitle}
-      >
-        {link.title}
-      </Text>
-    );
-    try {
-      detail = new URL(link.url).hostname;
-    } catch {
-      detail = null;
-    }
-  }
-
-  return (
-    <Group gap="xs" wrap="nowrap" className={classes.linkRow}>
-      <span
-        style={{
-          display: "flex",
-          flex: "none",
-          color: "var(--mantine-color-dimmed)",
-        }}
-      >
-        {icon}
-      </span>
-      {target}
-      {detail && (
-        <Text
-          size="xs"
-          c="dimmed"
-          truncate
-          style={{ flex: "none", maxWidth: 160 }}
-        >
-          {detail}
-        </Text>
-      )}
-      {canEdit && (
-        <Tooltip label={t("Remove")} withArrow>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="sm"
-            ml="auto"
-            aria-label={t("Remove {{title}}", { title: link.title })}
-            onClick={() => remove.mutate(link.id)}
-          >
-            <IconX size={14} />
-          </ActionIcon>
-        </Tooltip>
-      )}
-    </Group>
-  );
-}
-
-function UsedIn({ info }: { info: IPageTaskInfo }) {
-  const { t } = useTranslation();
-  return (
-    <Group gap={6} wrap="wrap">
-      <Text size="xs" fw={600} c="dimmed" className={classes.sectionTitle}>
-        {t("Used in tasks")}
-      </Text>
-      {info.usedIn.map((task) => (
-        <Badge
-          key={task.taskPageId}
-          component={Link}
-          to={buildPageUrl(
-            task.spaceSlug ?? undefined,
-            task.slugId,
-            task.title ?? undefined,
-          )}
-          variant="light"
-          radius="sm"
-          color={statusColor(task.status)}
-          style={{ cursor: "pointer", textTransform: "none" }}
-        >
-          {task.icon ? `${task.icon} ` : ""}
-          {task.title || t("Untitled")}
-        </Badge>
-      ))}
-    </Group>
   );
 }

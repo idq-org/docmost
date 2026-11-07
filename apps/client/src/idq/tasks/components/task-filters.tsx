@@ -4,6 +4,7 @@ import { IconFilterOff } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { IBoardTask } from "../types";
 import { labelValueText, priorityRank } from "../task-display";
+import { useTaskSettings } from "../hooks/use-task-settings";
 
 export type TaskFilters = {
   priority: string | null;
@@ -53,6 +54,7 @@ export function TaskFiltersBar({
   onChange,
 }: TaskFiltersBarProps) {
   const { t } = useTranslation();
+  const { priorities: vocabularyPriorities } = useTaskSettings();
 
   const options = useMemo(() => {
     const priorities = new Set<string>();
@@ -65,7 +67,11 @@ export function TaskFiltersBar({
     }
     return {
       priorities: [...priorities]
-        .sort((a, b) => priorityRank(a) - priorityRank(b) || a.localeCompare(b))
+        .sort(
+          (a, b) =>
+            priorityRank(a, vocabularyPriorities) -
+              priorityRank(b, vocabularyPriorities) || a.localeCompare(b),
+        )
         .map((value) => ({ value, label: labelValueText(value) })),
       areas: [...areas]
         .sort()
@@ -74,7 +80,7 @@ export function TaskFiltersBar({
         .map(([value, label]) => ({ value, label }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     };
-  }, [tasks]);
+  }, [tasks, vocabularyPriorities]);
 
   return (
     <Group gap="sm" wrap="wrap">

@@ -8,23 +8,73 @@ import {
   getPageTaskInfo,
   getTaskBoard,
   getTaskFieldOptions,
+  getTaskSettings,
   removeTaskLink,
   setAssigneeMapping,
   setTaskFields,
   setTaskStatus,
+  updateTaskSettings,
 } from "../services/idq-task-service";
-import { IBoardTask, IPageTaskInfo, ITaskBoard, TaskStatus } from "../types";
+import { IPageTaskInfo, ITaskBoard, TaskStatus } from "../types";
 
-export const TASK_BOARD_KEY = (spaceId: string) => ["idq-task-board", spaceId];
-export const PAGE_TASK_KEY = (pageId: string) => ["idq-page-task", pageId];
+export const taskKeys = {
+  all: ["idq-tasks"] as const,
+  settings: () => [...taskKeys.all, "settings"] as const,
+  boards: () => [...taskKeys.all, "board"] as const,
+  board: (spaceId: string) => [...taskKeys.boards(), spaceId] as const,
+  pages: () => [...taskKeys.all, "page"] as const,
+  page: (pageId: string) => [...taskKeys.pages(), pageId] as const,
+  fieldOptions: () => [...taskKeys.all, "field-options"] as const,
+  mappings: () => [...taskKeys.all, "assignee-mappings"] as const,
+};
 
-function errorMessage(err: any, fallback: string) {
-  return err?.response?.data?.message ?? fallback;
+/**
+ * Key of Docmost's cache of a page's labels (usePageLabelsQuery). Task
+ * fields are labels, so a change made here refreshes the labels section of
+ * the page, and a change made there refreshes the task panel.
+ */
+export const pageLabelsKey = (pageId: string) => ["page-labels", pageId];
+
+function errorMessage(err: unknown, fallback: string): string {
+  const message = (err as { response?: { data?: { message?: unknown } } })
+    ?.response?.data?.message;
+  return typeof message === "string" ? message : fallback;
+}
+
+function useErrorNotification() {
+  const { t } = useTranslation();
+  return (fallback: string) => (err: unknown) =>
+    notifications.show({
+      message: errorMessage(err, t(fallback)),
+      color: "red",
+    });
+}
+
+export function useTaskSettingsQuery() {
+  return useQuery({
+    queryKey: taskKeys.settings(),
+    queryFn: getTaskSettings,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useUpdateTaskSettingsMutation() {
+  const queryClient = useQueryClient();
+  const onError = useErrorNotification();
+  return useMutation({
+    mutationFn: updateTaskSettings,
+    onSuccess: (settings) => {
+      queryClient.setQueryData(taskKeys.settings(), settings);
+      // The same labels now mean other things.
+      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+    },
+    onError: onError("Failed to save the settings"),
+  });
 }
 
 export function useTaskBoardQuery(spaceId: string | undefined) {
   return useQuery({
-    queryKey: TASK_BOARD_KEY(spaceId ?? ""),
+    queryKey: taskKeys.board(spaceId ?? ""),
     queryFn: () => getTaskBoard(spaceId as string),
     enabled: !!spaceId,
     // Others move cards too: reload when coming back to the board.
@@ -35,22 +85,31 @@ export function useTaskBoardQuery(spaceId: string | undefined) {
   });
 }
 
-export function usePageTaskQuery(pageId: string | undefined, version = "") {
+export function usePageTaskQuery(pageId: string | undefined) {
   return useQuery({
-    queryKey: [...PAGE_TASK_KEY(pageId ?? ""), version],
+    queryKey: taskKeys.page(pageId ?? ""),
     queryFn: () => getPageTaskInfo(pageId as string),
     enabled: !!pageId,
     staleTime: 0,
     refetchOnWindowFocus: true,
-    placeholderData: (previous) => previous,
   });
+}
+
+function useInvalidateTask() {
+  const queryClient = useQueryClient();
+  return (pageId: string) => {
+    queryClient.invalidateQueries({ queryKey: taskKeys.page(pageId) });
+    queryClient.invalidateQueries({ queryKey: taskKeys.boards() });
+    queryClient.invalidateQueries({ queryKey: pageLabelsKey(pageId) });
+  };
 }
 
 /** Moves a card, updating the board before the server answers. */
 export function useSetTaskStatusMutation(spaceId: string | undefined) {
   const queryClient = useQueryClient();
-  const { t } = useTranslation();
-  const boardKey = TASK_BOARD_KEY(spaceId ?? "");
+  const invalidate = useInvalidateTask();
+  const onError = useErrorNotification();
+  const boardKey = taskKeys.board(spaceId ?? "");
 
   return useMutation({
     mutationFn: setTaskStatus,
@@ -71,23 +130,16 @@ export function useSetTaskStatusMutation(spaceId: string | undefined) {
       if (context?.previous) {
         queryClient.setQueryData(boardKey, context.previous);
       }
-      notifications.show({
-        message: errorMessage(err, t("Failed to move the task")),
-        color: "red",
-      });
+      onError("Failed to move the task")(err);
     },
-    onSettled: (_data, _err, { pageId }) => {
-      queryClient.invalidateQueries({ queryKey: boardKey });
-      queryClient.invalidateQueries({ queryKey: PAGE_TASK_KEY(pageId) });
-      queryClient.invalidateQueries({ queryKey: ["page-labels", pageId] });
-    },
+    onSettled: (_data, _err, { pageId }) => invalidate(pageId),
   });
 }
 
 export function useCreateTaskMutation(spaceId: string | undefined) {
   const queryClient = useQueryClient();
-  const { t } = useTranslation();
-  const boardKey = TASK_BOARD_KEY(spaceId ?? "");
+  const onError = useErrorNotification();
+  const boardKey = taskKeys.board(spaceId ?? "");
 
   return useMutation({
     mutationFn: (data: {
@@ -95,65 +147,27 @@ export function useCreateTaskMutation(spaceId: string | undefined) {
       status: TaskStatus;
       content?: string;
     }) => createTask({ spaceId: spaceId as string, ...data }),
-    onSuccess: (task: IBoardTask) => {
+    onSuccess: ({ task }) => {
       queryClient.setQueryData<ITaskBoard>(boardKey, (board) =>
         board ? { ...board, tasks: [...board.tasks, task] } : board,
       );
       queryClient.invalidateQueries({ queryKey: boardKey });
     },
-    onError: (err) =>
-      notifications.show({
-        message: errorMessage(err, t("Failed to create the task")),
-        color: "red",
-      }),
+    onError: onError("Failed to create the task"),
   });
 }
 
-function useInvalidateTaskData() {
+export function useSetTaskFieldsMutation() {
   const queryClient = useQueryClient();
-  return (pageId: string) => {
-    queryClient.invalidateQueries({ queryKey: PAGE_TASK_KEY(pageId) });
-    // Link counts on the cards
-    queryClient.invalidateQueries({ queryKey: ["idq-task-board"] });
-  };
-}
-
-export function useAddTaskLinkMutation(taskPageId: string) {
-  const { t } = useTranslation();
-  const invalidate = useInvalidateTaskData();
+  const invalidate = useInvalidateTask();
+  const onError = useErrorNotification();
   return useMutation({
-    mutationFn: addTaskLink,
-    onSuccess: () => invalidate(taskPageId),
-    onError: (err) =>
-      notifications.show({
-        message: errorMessage(err, t("Failed to link the material")),
-        color: "red",
-      }),
-  });
-}
-
-export function useRemoveTaskLinkMutation(taskPageId: string) {
-  const queryClient = useQueryClient();
-  const { t } = useTranslation();
-  const invalidate = useInvalidateTaskData();
-  return useMutation({
-    mutationFn: removeTaskLink,
-    onMutate: (linkId: string) => {
-      // Hide it right away from every cached version of the panel.
-      queryClient.setQueriesData<IPageTaskInfo>(
-        { queryKey: PAGE_TASK_KEY(taskPageId) },
-        (info) =>
-          info
-            ? { ...info, links: info.links.filter((l) => l.id !== linkId) }
-            : info,
-      );
+    mutationFn: setTaskFields,
+    onSuccess: (_data, { pageId }) => {
+      invalidate(pageId);
+      queryClient.invalidateQueries({ queryKey: taskKeys.fieldOptions() });
     },
-    onSettled: () => invalidate(taskPageId),
-    onError: (err) =>
-      notifications.show({
-        message: errorMessage(err, t("Failed to remove the material")),
-        color: "red",
-      }),
+    onError: onError("Failed to save the task"),
   });
 }
 
@@ -162,37 +176,16 @@ export function useTaskFieldOptionsQuery(
   enabled: boolean,
 ) {
   return useQuery({
-    queryKey: ["idq-task-field-options", spaceId ?? ""],
+    queryKey: [...taskKeys.fieldOptions(), spaceId ?? ""],
     queryFn: () => getTaskFieldOptions(spaceId as string),
     enabled: !!spaceId && enabled,
     staleTime: 30 * 1000,
   });
 }
 
-export function useSetTaskFieldsMutation() {
-  const queryClient = useQueryClient();
-  const { t } = useTranslation();
-  return useMutation({
-    mutationFn: setTaskFields,
-    onSuccess: (_data, { pageId }) => {
-      queryClient.invalidateQueries({ queryKey: PAGE_TASK_KEY(pageId) });
-      queryClient.invalidateQueries({ queryKey: ["idq-task-board"] });
-      queryClient.invalidateQueries({ queryKey: ["idq-task-field-options"] });
-      queryClient.invalidateQueries({ queryKey: ["page-labels", pageId] });
-    },
-    onError: (err) =>
-      notifications.show({
-        message: errorMessage(err, t("Failed to save the task")),
-        color: "red",
-      }),
-  });
-}
-
-const ASSIGNEE_MAPPINGS = ["idq-task-assignee-mappings"];
-
 export function useAssigneeMappingsQuery(enabled: boolean) {
   return useQuery({
-    queryKey: ASSIGNEE_MAPPINGS,
+    queryKey: taskKeys.mappings(),
     queryFn: getAssigneeMappings,
     enabled,
   });
@@ -200,19 +193,49 @@ export function useAssigneeMappingsQuery(enabled: boolean) {
 
 export function useSetAssigneeMappingMutation() {
   const queryClient = useQueryClient();
-  const { t } = useTranslation();
+  const onError = useErrorNotification();
   return useMutation({
     mutationFn: setAssigneeMapping,
+    // People in charge appear on boards, panels and pickers.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: taskKeys.all }),
+    onError: onError("Failed to save the person in charge"),
+  });
+}
+
+export function useAddTaskLinkMutation(taskPageId: string) {
+  const queryClient = useQueryClient();
+  const onError = useErrorNotification();
+  return useMutation({
+    mutationFn: addTaskLink,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ASSIGNEE_MAPPINGS });
-      queryClient.invalidateQueries({ queryKey: ["idq-task-board"] });
-      queryClient.invalidateQueries({ queryKey: ["idq-page-task"] });
-      queryClient.invalidateQueries({ queryKey: ["idq-task-field-options"] });
+      queryClient.invalidateQueries({ queryKey: taskKeys.page(taskPageId) });
+      // Link counts on the cards
+      queryClient.invalidateQueries({ queryKey: taskKeys.boards() });
     },
-    onError: (err) =>
-      notifications.show({
-        message: errorMessage(err, t("Failed to save the person in charge")),
-        color: "red",
-      }),
+    onError: onError("Failed to link the material"),
+  });
+}
+
+export function useRemoveTaskLinkMutation(taskPageId: string) {
+  const queryClient = useQueryClient();
+  const onError = useErrorNotification();
+  return useMutation({
+    mutationFn: removeTaskLink,
+    onMutate: (linkId: string) => {
+      // Hide it right away.
+      queryClient.setQueryData<IPageTaskInfo>(
+        taskKeys.page(taskPageId),
+        (info) =>
+          info && {
+            ...info,
+            links: info.links.filter((link) => link.id !== linkId),
+          },
+      );
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.page(taskPageId) });
+      queryClient.invalidateQueries({ queryKey: taskKeys.boards() });
+    },
+    onError: onError("Failed to remove the material"),
   });
 }

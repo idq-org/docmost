@@ -1,10 +1,27 @@
 import { type Kysely, sql } from 'kysely';
 
-// Task board (issue #3). A task is a Docmost page with `stato-` labels, so
-// these tables only hold what labels can't: linked materials, and which user
-// a `ref-` label stands for.
+// Task board (issue #3). A task is a Docmost page with a status label, so
+// these tables only hold what labels can't: the label vocabulary of the
+// workspace, linked materials, and which user a person-in-charge label
+// stands for.
 
 export async function up(db: Kysely<any>): Promise<void> {
+  // Label prefixes and values the board reads and writes (TaskVocabulary).
+  // No row means the English defaults.
+  await db.schema
+    .createTable('idq_task_settings')
+    .addColumn('workspace_id', 'uuid', (col) =>
+      col.primaryKey().references('workspaces.id').onDelete('cascade'),
+    )
+    .addColumn('vocabulary', 'jsonb', (col) => col.notNull())
+    .addColumn('updated_by_id', 'uuid', (col) =>
+      col.references('users.id').onDelete('set null'),
+    )
+    .addColumn('updated_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(sql`now()`),
+    )
+    .execute();
+
   await db.schema
     .createTable('idq_task_links')
     .addColumn('id', 'uuid', (col) =>
@@ -12,10 +29,6 @@ export async function up(db: Kysely<any>): Promise<void> {
     )
     .addColumn('workspace_id', 'uuid', (col) =>
       col.notNull().references('workspaces.id').onDelete('cascade'),
-    )
-    // space of the task page: lets the board count links in one query
-    .addColumn('space_id', 'uuid', (col) =>
-      col.notNull().references('spaces.id').onDelete('cascade'),
     )
     .addColumn('task_page_id', 'uuid', (col) =>
       col.notNull().references('pages.id').onDelete('cascade'),
@@ -51,12 +64,6 @@ export async function up(db: Kysely<any>): Promise<void> {
     .columns(['task_page_id', 'created_at'])
     .execute();
 
-  await db.schema
-    .createIndex('idq_task_links_space_idx')
-    .on('idq_task_links')
-    .column('space_id')
-    .execute();
-
   // "Used in tasks" on the linked page
   await db.schema
     .createIndex('idq_task_links_target_page_idx')
@@ -82,14 +89,14 @@ export async function up(db: Kysely<any>): Promise<void> {
     .where('attachment_id', 'is not', null)
     .execute();
 
-  // `ref-andrea` → user. Labels hold names, and a first name can belong to
-  // several members: admins say who each one is.
+  // Person-in-charge label value → user. Labels hold names, and a first name
+  // can belong to several members: admins say who each one is.
   await db.schema
     .createTable('idq_task_assignees')
     .addColumn('workspace_id', 'uuid', (col) =>
       col.notNull().references('workspaces.id').onDelete('cascade'),
     )
-    // value of the label without `ref-`
+    // value of the label, without the prefix
     .addColumn('value', 'varchar(100)', (col) => col.notNull())
     .addColumn('user_id', 'uuid', (col) =>
       col.notNull().references('users.id').onDelete('cascade'),
@@ -110,4 +117,5 @@ export async function up(db: Kysely<any>): Promise<void> {
 export async function down(db: Kysely<any>): Promise<void> {
   await db.schema.dropTable('idq_task_assignees').execute();
   await db.schema.dropTable('idq_task_links').execute();
+  await db.schema.dropTable('idq_task_settings').execute();
 }

@@ -4,11 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectKysely } from 'nestjs-kysely';
-import { User } from '@docmost/db/types/entity.types';
+import { isUUID } from 'class-validator';
+import { Page, User } from '@docmost/db/types/entity.types';
 import { IdqKyselyDB, IdqTaskLinkType } from '../database/idq-db.types';
 import { IdqTaskAccess } from './idq-task-access';
-import { IdqTaskLabelStore } from './idq-task-label-store';
-import { TaskStatus } from './idq-task-fields';
 
 export const MAX_LINKS_PER_TASK = 100;
 
@@ -34,18 +33,17 @@ export type TaskLinkView = {
   createdAt: Date;
 };
 
-export type TaskUsage = {
+/** A page that links to another one, as material. */
+export type LinkingPage = {
   taskPageId: string;
   slugId: string;
   title: string | null;
   icon: string | null;
   spaceSlug: string | null;
   spaceName: string | null;
-  status: TaskStatus | null;
 };
 
 export type AddTaskLinkInput = {
-  taskPageId: string;
   type: IdqTaskLinkType;
   targetPageId?: string;
   attachmentId?: string;
@@ -54,7 +52,8 @@ export type AddTaskLinkInput = {
 };
 
 /**
- * Materials linked to a task: pages, attachments and external links.
+ * Materials linked to a task: pages, attachments and external links. This
+ * service knows links, not tasks: the board checks that a page is a task.
  *
  * Linked pages and attachments keep their own permissions: a viewer only
  * sees (and counts) the ones they could open anyway.
@@ -64,7 +63,6 @@ export class IdqTaskLinksService {
   constructor(
     @InjectKysely() private readonly db: IdqKyselyDB,
     private readonly access: IdqTaskAccess,
-    private readonly labelStore: IdqTaskLabelStore,
   ) {}
 
   /** Visible links of a task. The caller has checked access to the task. */
@@ -95,14 +93,14 @@ export class IdqTaskLinksService {
   }
 
   /**
-   * Tasks that link this page, among those the user can see. The caller has
-   * checked access to the page.
+   * Pages that link this page as material, among those the user can see.
+   * The caller has checked access to the page.
    */
-  async usedIn(
+  async linkingPages(
     pageId: string,
     user: User,
     workspaceId: string,
-  ): Promise<TaskUsage[]> {
+  ): Promise<LinkingPage[]> {
     const rows = await this.db
       .selectFrom('idqTaskLinks')
       .innerJoin('pages', 'pages.id', 'idqTaskLinks.taskPageId')
@@ -127,32 +125,19 @@ export class IdqTaskLinksService {
       user.id,
       workspaceId,
     );
-    const tasks = rows.filter((r) => visible.has(r.taskPageId));
-    const fields = await this.labelStore.findPagesTasks(
-      tasks.map((t) => t.taskPageId),
-    );
-
-    // A page that is no longer a task doesn't count.
-    return tasks
-      .filter((t) => fields.get(t.taskPageId)?.statusValue != null)
-      .map((t) => ({ ...t, status: fields.get(t.taskPageId).status }));
+    return rows.filter((r) => visible.has(r.taskPageId));
   }
 
+  /**
+   * Links a material to a task page that the caller has found editable and
+   * checked to be a task.
+   */
   async add(
+    task: Page,
     input: AddTaskLinkInput,
     user: User,
     workspaceId: string,
   ): Promise<TaskLinkView> {
-    const task = await this.access.findEditablePage(
-      input.taskPageId,
-      user,
-      workspaceId,
-    );
-    const fields = await this.labelStore.findPageTask(task.id);
-    if (fields.statusValue === null) {
-      throw new BadRequestException('The page is not a task');
-    }
-
     const { count } = await this.db
       .selectFrom('idqTaskLinks')
       .select((eb) => eb.fn.countAll<string>().as('count'))
@@ -166,7 +151,6 @@ export class IdqTaskLinksService {
 
     const base = {
       workspaceId,
-      spaceId: task.spaceId,
       taskPageId: task.id,
       createdById: user.id,
     };
@@ -235,7 +219,6 @@ export class IdqTaskLinksService {
   private async insertOrFind(
     values: {
       workspaceId: string;
-      spaceId: string;
       taskPageId: string;
       createdById: string;
       type: IdqTaskLinkType;
@@ -271,11 +254,7 @@ export class IdqTaskLinksService {
     const page = await this.db
       .selectFrom('pages')
       .select('id')
-      .where((eb) =>
-        /^[0-9a-f-]{36}$/i.test(pageId)
-          ? eb('id', '=', pageId)
-          : eb('slugId', '=', pageId),
-      )
+      .where(isUUID(pageId) ? 'id' : 'slugId', '=', pageId)
       .where('workspaceId', '=', workspaceId)
       .executeTakeFirst();
     const visible = page
@@ -317,8 +296,12 @@ export class IdqTaskLinksService {
   }
 
   /** Link rows with their target, without permission checks. */
-  linkRows(taskPageIds: string[], workspaceId: string, id?: string) {
-    return this.db
+  private async linkRows(
+    taskPageIds: string[],
+    workspaceId: string,
+    id?: string,
+  ): Promise<LinkRow[]> {
+    const rows = await this.db
       .selectFrom('idqTaskLinks')
       .leftJoin('pages as target', 'target.id', 'idqTaskLinks.targetPageId')
       .leftJoin('spaces as targetSpace', 'targetSpace.id', 'target.spaceId')
@@ -349,6 +332,9 @@ export class IdqTaskLinksService {
       .orderBy('idqTaskLinks.createdAt')
       .orderBy('idqTaskLinks.id')
       .execute();
+    // Through the joins Kysely keeps our timestamp columns as ColumnType;
+    // at runtime they are Dates.
+    return rows as unknown as LinkRow[];
   }
 
   private async visibleRows(
@@ -388,7 +374,7 @@ export class IdqTaskLinksService {
       url: null,
       page: null,
       attachment: null,
-      createdAt: row.createdAt as unknown as Date,
+      createdAt: row.createdAt,
     };
 
     if (row.type === 'page') {
@@ -420,4 +406,24 @@ export class IdqTaskLinksService {
   }
 }
 
-type LinkRow = Awaited<ReturnType<IdqTaskLinksService['linkRows']>>[number];
+/** A link with what the viewer needs of its target. */
+type LinkRow = {
+  id: string;
+  type: IdqTaskLinkType;
+  taskPageId: string;
+  url: string | null;
+  title: string | null;
+  createdAt: Date;
+  targetPageId: string | null;
+  targetSlugId: string | null;
+  targetTitle: string | null;
+  targetIcon: string | null;
+  targetSpaceSlug: string | null;
+  targetSpaceName: string | null;
+  attachmentId: string | null;
+  attachmentPageId: string | null;
+  attachmentFileName: string | null;
+  attachmentMimeType: string | null;
+  attachmentFileSize: number | string | bigint | null;
+  attachmentDeletedAt: Date | null;
+};

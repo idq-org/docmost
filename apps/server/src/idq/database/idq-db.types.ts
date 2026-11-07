@@ -36,10 +36,16 @@ export interface IdqMcpWriteLog {
 
 export type IdqTaskLinkType = 'page' | 'attachment' | 'url';
 
+export interface IdqTaskSettings {
+  workspaceId: string;
+  vocabulary: unknown;
+  updatedById: string | null;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface IdqTaskLinks {
   id: Generated<string>;
   workspaceId: string;
-  spaceId: string;
   taskPageId: string;
   type: IdqTaskLinkType;
   targetPageId: string | null;
@@ -64,6 +70,7 @@ export interface IdqDbInterface extends DbInterface {
   idqMcpWriteLog: IdqMcpWriteLog;
   idqTaskLinks: IdqTaskLinks;
   idqTaskAssignees: IdqTaskAssignees;
+  idqTaskSettings: IdqTaskSettings;
 }
 
 export type IdqKyselyDB = Kysely<IdqDbInterface>;

@@ -1,21 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { InjectKysely } from 'nestjs-kysely';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { sql } from 'kysely';
+import { RawBuilder, sql } from 'kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
-import { LabelRepo, LabelType } from '@docmost/db/repos/label/label.repo';
-import { executeTx } from '@docmost/db/utils';
-import { EventName } from '../../common/events/event.contants';
+import { LabelType } from '@docmost/db/repos/label/label.repo';
 import { SpaceMemberRepo } from '@docmost/db/repos/space/space-member.repo';
+import { LabelService } from '../../core/label/label.service';
 import {
   ParsedTaskLabels,
-  STATUS_PREFIX,
-  TASK_LABEL_PREFIXES,
-  TaskLabelPrefix,
+  TASK_FIELDS,
+  TaskField,
   TaskStatus,
+  TaskVocabulary,
+  escapeLike,
+  fieldOfLabel,
   parseTaskLabels,
-  statusLabelName,
 } from './idq-task-fields';
+import { KeyedMutex } from './keyed-mutex';
 
 export type StoredTask = ParsedTaskLabels & {
   pageId: string;
@@ -27,19 +28,42 @@ export type StoredTask = ParsedTaskLabels & {
   updatedAt: Date;
 };
 
+/** `labels.name` starts with the prefix of one of the fields. */
+function labelOfFields(
+  vocabulary: TaskVocabulary,
+  fields: readonly TaskField[],
+): RawBuilder<boolean> {
+  const patterns = fields.map(
+    (field) => escapeLike(vocabulary.prefixes[field]) + '%',
+  );
+  return sql<boolean>`(${sql.join(
+    patterns.map((pattern) => sql`labels.name like ${pattern}`),
+    sql` or `,
+  )})`;
+}
+
 /**
  * Reads and writes the task fields stored as page labels (see
- * idq-task-fields.ts). It uses Docmost's label tables and repository, so the
- * labels stay the same ones that the page details and the label pages show.
+ * idq-task-fields.ts). Reads use Docmost's label tables; writes go through
+ * Docmost's LabelService, so they behave like the labels section of a page
+ * (events, search index, cleanup of labels left without pages).
  */
 @Injectable()
-export class IdqTaskLabelStore {
+export class IdqTaskLabelStore implements OnModuleInit {
+  private labelService: LabelService;
+  private readonly pageLocks = new KeyedMutex();
+
   constructor(
     @InjectKysely() private readonly db: KyselyDB,
-    private readonly labelRepo: LabelRepo,
+    private readonly moduleRef: ModuleRef,
     private readonly spaceMemberRepo: SpaceMemberRepo,
-    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  onModuleInit() {
+    // LabelModule is imported by PageModule, not by us: same approach as
+    // the IDQ MCP for core services.
+    this.labelService = this.moduleRef.get(LabelService, { strict: false });
+  }
 
   /**
    * Tasks of a space: pages that aren't deleted and have a status label.
@@ -48,6 +72,7 @@ export class IdqTaskLabelStore {
   async findSpaceTasks(
     spaceId: string,
     workspaceId: string,
+    vocabulary: TaskVocabulary,
   ): Promise<StoredTask[]> {
     const rows = await this.db
       .selectFrom('pages')
@@ -68,27 +93,49 @@ export class IdqTaskLabelStore {
       .where('pages.deletedAt', 'is', null)
       .where('labels.workspaceId', '=', workspaceId)
       .where('labels.type', '=', LabelType.PAGE)
-      .where((eb) =>
-        eb.or(
-          TASK_LABEL_PREFIXES.map((prefix) =>
-            eb('labels.name', 'like', `${prefix}%`),
-          ),
-        ),
-      )
+      .where(labelOfFields(vocabulary, TASK_FIELDS))
       .execute();
 
-    return this.groupByPage(rows).filter((task) => task.statusValue !== null);
+    const byPage = new Map<
+      string,
+      { row: (typeof rows)[number]; names: string[] }
+    >();
+    for (const row of rows) {
+      const entry = byPage.get(row.pageId) ?? { row, names: [] };
+      entry.names.push(row.labelName);
+      byPage.set(row.pageId, entry);
+    }
+
+    const tasks: StoredTask[] = [];
+    for (const { row, names } of byPage.values()) {
+      const fields = parseTaskLabels(names, vocabulary);
+      if (fields.statusValue === null) continue;
+      tasks.push({
+        pageId: row.pageId,
+        slugId: row.slugId,
+        title: row.title,
+        icon: row.icon,
+        spaceId: row.spaceId,
+        createdAt: row.createdAt as Date,
+        updatedAt: row.updatedAt as Date,
+        ...fields,
+      });
+    }
+    return tasks;
   }
 
   /** Task fields of one page; statusValue is null if it isn't a task. */
-  async findPageTask(pageId: string): Promise<ParsedTaskLabels> {
-    const fields = await this.findPagesTasks([pageId]);
-    return fields.get(pageId);
+  async findPageTask(
+    pageId: string,
+    vocabulary: TaskVocabulary,
+  ): Promise<ParsedTaskLabels> {
+    return (await this.findPagesTasks([pageId], vocabulary)).get(pageId);
   }
 
   /** Task fields of each page; statusValue is null if it isn't a task. */
   async findPagesTasks(
     pageIds: string[],
+    vocabulary: TaskVocabulary,
   ): Promise<Map<string, ParsedTaskLabels>> {
     const ids = [...new Set(pageIds)];
     const names = new Map<string, string[]>(ids.map((id) => [id, []]));
@@ -99,124 +146,93 @@ export class IdqTaskLabelStore {
         .select(['pageLabels.pageId', 'labels.name'])
         .where('pageLabels.pageId', 'in', ids)
         .where('labels.type', '=', LabelType.PAGE)
-        .where((eb) =>
-          eb.or(
-            TASK_LABEL_PREFIXES.map((prefix) =>
-              eb('labels.name', 'like', `${prefix}%`),
-            ),
-          ),
-        )
+        .where(labelOfFields(vocabulary, TASK_FIELDS))
         .execute();
       for (const row of rows) names.get(row.pageId)?.push(row.name);
     }
-    return new Map([...names].map(([id, list]) => [id, parseTaskLabels(list)]));
+    return new Map(
+      [...names].map(([id, list]) => [id, parseTaskLabels(list, vocabulary)]),
+    );
   }
 
-  /**
-   * Replaces the page's status labels with the one of `status`. Status
-   * labels left without pages are deleted, as Docmost does when a label is
-   * removed from its last page.
-   */
   async setStatus(
     pageId: string,
     workspaceId: string,
+    vocabulary: TaskVocabulary,
     status: TaskStatus,
   ): Promise<void> {
-    await this.replaceFields(pageId, workspaceId, {
-      [STATUS_PREFIX]: [statusLabelName(status).slice(STATUS_PREFIX.length)],
+    await this.replaceFields(pageId, workspaceId, vocabulary, {
+      status: [vocabulary.statuses[status][0]],
     });
   }
 
   /**
-   * Replaces, for each given prefix, the page's labels with that prefix by
-   * the given values, in a single transaction. Prefixes not given are left
-   * alone. Labels left without pages are deleted.
+   * Replaces, for each given field, the page's labels of that field with the
+   * given values. Fields not given are left alone. Changes to the same page
+   * are serialized, so two quick moves can't leave two status labels.
    */
   async replaceFields(
     pageId: string,
     workspaceId: string,
-    fields: Partial<Record<TaskLabelPrefix, string[]>>,
+    vocabulary: TaskVocabulary,
+    changes: Partial<Record<TaskField, string[]>>,
   ): Promise<void> {
-    const prefixes = Object.keys(fields) as TaskLabelPrefix[];
-    if (prefixes.length === 0) return;
+    const fields = TASK_FIELDS.filter((field) => changes[field] !== undefined);
+    if (fields.length === 0) return;
 
-    await executeTx(this.db, async (trx) => {
-      // Serializes concurrent changes to the same task.
-      await sql`select pg_advisory_xact_lock(hashtext(${'idq-task:' + pageId}))`.execute(
-        trx,
-      );
-
-      const current = await trx
+    await this.pageLocks.run(pageId, async () => {
+      const current = await this.db
         .selectFrom('pageLabels')
         .innerJoin('labels', 'labels.id', 'pageLabels.labelId')
         .select(['labels.id', 'labels.name'])
         .where('pageLabels.pageId', '=', pageId)
         .where('labels.workspaceId', '=', workspaceId)
         .where('labels.type', '=', LabelType.PAGE)
-        .where((eb) =>
-          eb.or(
-            prefixes.map((prefix) => eb('labels.name', 'like', `${prefix}%`)),
-          ),
-        )
+        .where(labelOfFields(vocabulary, fields))
         .execute();
 
       const wanted = new Set(
-        prefixes.flatMap((prefix) =>
-          (fields[prefix] ?? []).map((value) => prefix + value),
+        fields.flatMap((field) =>
+          changes[field].map((value) => vocabulary.prefixes[field] + value),
         ),
       );
+      const present = new Set(current.map((label) => label.name));
 
-      for (const name of wanted) {
-        const label = await this.labelRepo.findOrCreate(
-          name,
-          workspaceId,
-          LabelType.PAGE,
-          trx,
-        );
-        await this.labelRepo.addLabelToPage(pageId, label.id, trx);
+      const toAdd = [...wanted].filter((name) => !present.has(name));
+      if (toAdd.length > 0) {
+        await this.labelService.addLabelsToPage(pageId, toAdd, workspaceId);
       }
 
+      // Removed after adding, so a failure never leaves a task without a
+      // status. The LIKE above can also match labels of another field with a
+      // longer prefix: fieldOfLabel tells them apart.
       for (const label of current) {
-        if (wanted.has(label.name)) continue;
-        await this.labelRepo.removeLabelFromPage(
-          pageId,
-          label.id,
-          workspaceId,
-          trx,
-        );
-        const count = await this.labelRepo.getLabelPageCount(
-          label.id,
-          workspaceId,
-          trx,
-        );
-        if (count === 0) {
-          await this.labelRepo.deleteLabel(label.id, workspaceId, trx);
+        const field = fieldOfLabel(label.name, vocabulary)?.field;
+        if (field && fields.includes(field) && !wanted.has(label.name)) {
+          await this.labelService.removeLabelFromPage(
+            pageId,
+            label.id,
+            workspaceId,
+          );
         }
       }
-    });
-
-    // Same event as Docmost's label endpoints (search index, page cache).
-    this.eventEmitter.emit(EventName.PAGE_UPDATED, {
-      pageIds: [pageId],
-      workspaceId,
     });
   }
 
   /**
-   * Values of the task labels on pages the user can reach by space (like
-   * Docmost's label list, page restrictions don't narrow it), for the
-   * pickers of the task panel.
+   * Task labels on pages of the spaces the user belongs to, with their page.
+   * The caller filters the pages the user can open.
    */
-  async usedValues(
+  async labelsInUserSpaces(
     workspaceId: string,
     userId: string,
-  ): Promise<Record<TaskLabelPrefix, string[]>> {
-    const rows = await this.db
+    vocabulary: TaskVocabulary,
+  ): Promise<Array<{ pageId: string; name: string }>> {
+    return this.db
       .selectFrom('labels')
-      .select('labels.name')
-      .distinct()
       .innerJoin('pageLabels', 'pageLabels.labelId', 'labels.id')
       .innerJoin('pages', 'pages.id', 'pageLabels.pageId')
+      .select(['pages.id as pageId', 'labels.name'])
       .where('labels.workspaceId', '=', workspaceId)
       .where('labels.type', '=', LabelType.PAGE)
       .where('pages.deletedAt', 'is', null)
@@ -225,34 +241,18 @@ export class IdqTaskLabelStore {
         'in',
         this.spaceMemberRepo.getUserSpaceIdsQuery(userId),
       )
-      .where((eb) =>
-        eb.or(
-          TASK_LABEL_PREFIXES.map((prefix) =>
-            eb('labels.name', 'like', `${prefix}%`),
-          ),
-        ),
-      )
+      .where(labelOfFields(vocabulary, TASK_FIELDS))
       .execute();
-
-    const values = Object.fromEntries(
-      TASK_LABEL_PREFIXES.map((prefix) => [prefix, [] as string[]]),
-    ) as Record<TaskLabelPrefix, string[]>;
-    for (const { name } of rows) {
-      const prefix = TASK_LABEL_PREFIXES.find((p) => name.startsWith(p));
-      const value = name.slice(prefix.length);
-      if (value) values[prefix].push(value);
-    }
-    for (const prefix of TASK_LABEL_PREFIXES) values[prefix].sort();
-    return values;
   }
 
   /**
-   * The parent page that holds most tasks of the space (the index page, in
-   * the association's spaces), or null when most are at the root.
+   * The parent page that holds most tasks of the space (an index page, for
+   * instance), or null when most are at the root.
    */
   async usualTaskParent(
     spaceId: string,
     workspaceId: string,
+    vocabulary: TaskVocabulary,
   ): Promise<string | null> {
     const row = await this.db
       .selectFrom('pages')
@@ -269,7 +269,7 @@ export class IdqTaskLabelStore {
             .select('pageLabels.id')
             .whereRef('pageLabels.pageId', '=', 'pages.id')
             .where('labels.type', '=', LabelType.PAGE)
-            .where('labels.name', 'like', `${STATUS_PREFIX}%`),
+            .where(labelOfFields(vocabulary, ['status'])),
         ),
       )
       .groupBy('pages.parentPageId')
@@ -277,26 +277,5 @@ export class IdqTaskLabelStore {
       .limit(1)
       .executeTakeFirst();
     return row?.parentPageId ?? null;
-  }
-
-  private groupByPage(
-    rows: Array<
-      Omit<StoredTask, keyof ParsedTaskLabels> & { labelName: string }
-    >,
-  ): StoredTask[] {
-    const pages = new Map<
-      string,
-      { row: (typeof rows)[number]; names: string[] }
-    >();
-    for (const row of rows) {
-      const entry = pages.get(row.pageId) ?? { row, names: [] };
-      entry.names.push(row.labelName);
-      pages.set(row.pageId, entry);
-    }
-
-    return [...pages.values()].map(({ row, names }) => {
-      const { labelName, ...page } = row;
-      return { ...page, ...parseTaskLabels(names) };
-    });
   }
 }

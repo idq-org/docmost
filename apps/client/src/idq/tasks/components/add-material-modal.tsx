@@ -332,7 +332,7 @@ function UrlForm({
         />
         <Group justify="flex-end">
           <Button type="submit" loading={addLink.isPending}>
-            {t("Add link")}
+            {t("Add the link")}
           </Button>
         </Group>
       </Stack>

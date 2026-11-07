@@ -35,6 +35,22 @@
   text-decoration: underline;
 }
 
+.linkIcon {
+  display: flex;
+  flex: none;
+  color: var(--mantine-color-dimmed);
+}
+
+.linkDetail {
+  flex: none;
+  max-width: 160px;
+}
+
+.usedInBadge {
+  cursor: pointer;
+  text-transform: none;
+}
+
 .pickerRow {
   display: block;
   width: 100%;

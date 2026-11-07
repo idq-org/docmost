@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActionIcon,
   Button,
@@ -18,13 +18,9 @@ import {
   useSetTaskFieldsMutation,
   useTaskFieldOptionsQuery,
 } from "../queries/idq-task-query";
-import { IPageTaskInfo, ITaskAssignee } from "../types";
-import {
-  PRIORITIES,
-  labelValueText,
-  priorityRank,
-  toLabelSlug,
-} from "../task-display";
+import { useTaskSettings } from "../hooks/use-task-settings";
+import { IPageTaskInfo, ITaskFieldOptions } from "../types";
+import { labelValueText, priorityRank } from "../task-display";
 
 type TaskFieldsModalProps = {
   info: IPageTaskInfo;
@@ -33,11 +29,7 @@ type TaskFieldsModalProps = {
   onClose: () => void;
 };
 
-/**
- * Priority, areas and people in charge of a task. They are labels
- * (priorita-, area-, ref-): this form replaces the table rows that used to
- * hold them in the task pages.
- */
+/** Priority, areas and people in charge of a task: labels, edited here. */
 export function TaskFieldsModal({
   info,
   spaceId,
@@ -45,93 +37,128 @@ export function TaskFieldsModal({
   onClose,
 }: TaskFieldsModalProps) {
   const { t } = useTranslation();
+  const { data: options, isLoading } = useTaskFieldOptionsQuery(
+    spaceId,
+    opened,
+  );
+
   return (
     <Modal opened={opened} onClose={onClose} title={t("Edit task")}>
-      {opened && info.task && (
-        <TaskFieldsForm info={info} spaceId={spaceId} onDone={onClose} />
+      {isLoading || !options ? (
+        <Group justify="center" py="md">
+          <Loader size="sm" />
+        </Group>
+      ) : (
+        info.task && (
+          // Mounted when opened: the form starts from the current values.
+          <TaskFieldsForm info={info} options={options} onDone={onClose} />
+        )
       )}
     </Modal>
   );
 }
 
+type Option = { value: string; label: string };
+
 function TaskFieldsForm({
   info,
-  spaceId,
+  options,
   onDone,
 }: {
   info: IPageTaskInfo;
-  spaceId: string;
+  options: ITaskFieldOptions;
   onDone: () => void;
 }) {
   const { t } = useTranslation();
   const task = info.task;
-  const { data: options, isLoading } = useTaskFieldOptionsQuery(spaceId, true);
+  const { priorities } = useTaskSettings();
   const save = useSetTaskFieldsMutation();
+
+  // Each member has one value (the server guarantees it): a person in
+  // charge matched to a member is shown, and saved, as that member.
+  const memberValueById = useMemo(
+    () => new Map(options.members.map((m) => [m.id, m.value])),
+    [options.members],
+  );
+  const asMemberValue = useCallback(
+    (a: { value: string; user: { id: string } | null }) =>
+      (a.user && memberValueById.get(a.user.id)) ?? a.value,
+    [memberValueById],
+  );
 
   const [priority, setPriority] = useState<string | null>(task.priority);
   const [areas, setAreas] = useState<string[]>(task.areas.map(labelValueText));
-  const [assignees, setAssignees] = useState<string[]>(
-    task.assignees.map((a) => a.value),
-  );
-  const [extraNames, setExtraNames] = useState<ITaskAssignee[]>([]);
-  const [freeName, setFreeName] = useState("");
+  const [assignees, setAssignees] = useState<string[]>(() => [
+    ...new Set(task.assignees.map(asMemberValue)),
+  ]);
+  const [typedNames, setTypedNames] = useState<Option[]>([]);
+  const [typedName, setTypedName] = useState("");
 
-  const priorityData = useMemo(() => {
+  const priorityData = useMemo<Option[]>(() => {
     const values = new Set([
-      ...PRIORITIES.map((p) => p.value),
-      ...(options?.priorities ?? []),
+      ...options.priorities,
       ...(task.priority ? [task.priority] : []),
     ]);
     return [...values]
-      .sort((a, b) => priorityRank(a) - priorityRank(b) || a.localeCompare(b))
+      .sort(
+        (a, b) =>
+          priorityRank(a, priorities) - priorityRank(b, priorities) ||
+          a.localeCompare(b),
+      )
       .map((value) => ({ value, label: labelValueText(value) }));
-  }, [options?.priorities, task.priority]);
+  }, [options.priorities, task.priority, priorities]);
 
-  // Area labels are shown as text ("Offerta formativa") and saved as label
-  // values; existing values keep their exact spelling.
+  // Areas are shown as text ("Teacher training") and saved as label values;
+  // existing values keep their exact spelling.
   const areaValueByText = useMemo(() => {
     const map = new Map<string, string>();
-    for (const value of [...(options?.areas ?? []), ...task.areas]) {
+    for (const value of [...options.areas, ...task.areas]) {
       map.set(labelValueText(value), value);
     }
     return map;
-  }, [options?.areas, task.areas]);
+  }, [options.areas, task.areas]);
 
   const assigneeData = useMemo(() => {
-    const members = (options?.members ?? []).map((m) => ({
+    const members: Option[] = options.members.map((m) => ({
       value: m.value,
       label: m.name || labelValueText(m.value),
     }));
-    const memberValues = new Set(members.map((m) => m.value));
-    const others = new Map<string, string>();
-    for (const a of [
-      ...(options?.assignees ?? []),
-      ...task.assignees,
-      ...extraNames,
-    ]) {
-      if (!memberValues.has(a.value) && !others.has(a.value)) {
-        others.set(a.value, a.user?.name || a.name);
-      }
+    const taken = new Set(members.map((m) => m.value));
+    const others: Option[] = [];
+    for (const a of [...options.assignees, ...task.assignees]) {
+      const value = asMemberValue(a);
+      if (taken.has(value)) continue;
+      taken.add(value);
+      others.push({ value, label: a.name });
+    }
+    for (const typed of typedNames) {
+      if (taken.has(typed.value)) continue;
+      taken.add(typed.value);
+      others.push(typed);
     }
     return [
       { group: t("Members"), items: members },
-      {
-        group: t("Without an account"),
-        items: [...others].map(([value, label]) => ({ value, label })),
-      },
-    ].filter((g) => g.items.length > 0);
-  }, [options?.members, options?.assignees, task.assignees, extraNames, t]);
+      { group: t("Without an account"), items: others },
+    ].filter((group) => group.items.length > 0);
+  }, [
+    options.members,
+    options.assignees,
+    task.assignees,
+    typedNames,
+    asMemberValue,
+    t,
+  ]);
 
-  const addFreeName = () => {
-    const name = freeName.trim();
-    const value = toLabelSlug(name);
-    if (!value) return;
-    setExtraNames((list) => [...list, { value, name, user: null }]);
-    setAssignees((list) => (list.includes(value) ? list : [...list, value]));
-    setFreeName("");
+  const addTypedName = () => {
+    const name = typedName.trim();
+    if (!name) return;
+    // The server turns the name into a label value.
+    setTypedNames((list) => [...list, { value: name, label: name }]);
+    setAssignees((list) => (list.includes(name) ? list : [...list, name]));
+    setTypedName("");
   };
 
-  const submit = () => {
+  const submit = () =>
     save.mutate(
       {
         pageId: info.pageId,
@@ -141,15 +168,6 @@ function TaskFieldsForm({
       },
       { onSuccess: onDone },
     );
-  };
-
-  if (isLoading) {
-    return (
-      <Group justify="center" py="md">
-        <Loader size="sm" />
-      </Group>
-    );
-  }
 
   return (
     <Stack gap="md">
@@ -187,12 +205,12 @@ function TaskFieldsForm({
           style={{ flex: 1 }}
           label={t("Someone without an account")}
           placeholder={t("Name and surname")}
-          value={freeName}
-          onChange={(e) => setFreeName(e.currentTarget.value)}
+          value={typedName}
+          onChange={(e) => setTypedName(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              addFreeName();
+              addTypedName();
             }
           }}
         />
@@ -201,8 +219,8 @@ function TaskFieldsForm({
             size={36}
             variant="default"
             aria-label={t("Add to the people in charge")}
-            onClick={addFreeName}
-            disabled={!toLabelSlug(freeName)}
+            onClick={addTypedName}
+            disabled={!typedName.trim()}
           >
             <IconPlus size={16} />
           </ActionIcon>

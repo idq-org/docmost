@@ -2,7 +2,7 @@ import type { MantineColor } from "@mantine/core";
 import type { TFunction } from "i18next";
 import { IBoardTask, ITaskDeadline, TaskStatus } from "./types";
 
-/** English names of the columns: the Italian ones are in i18n.ts. */
+/** English names of the columns; translations live in i18n.ts. */
 const STATUS_NAMES: Record<TaskStatus, string> = {
   todo: "To do",
   in_progress: "In progress",
@@ -31,30 +31,33 @@ export function statusColor(status: TaskStatus | null): MantineColor {
   return status ? STATUS_COLORS[status] : "gray";
 }
 
+/** Colors of the priorities, most urgent first; the rest are gray. */
+const PRIORITY_COLORS: MantineColor[] = ["red", "orange", "yellow"];
+
 /**
- * Known values of the `priorita-` labels, most urgent first. Other values
- * are shown as they are, after these.
+ * Position of a priority in the workspace vocabulary (most urgent first).
+ * Values outside it come after, and no priority comes last.
  */
-export const PRIORITIES: Array<{ value: string; color: MantineColor }> = [
-  { value: "massima", color: "red" },
-  { value: "alta", color: "orange" },
-  { value: "media", color: "yellow" },
-  { value: "bassa", color: "gray" },
-];
-
-export function priorityRank(priority: string | null): number {
-  if (!priority) return PRIORITIES.length + 1;
-  const index = PRIORITIES.findIndex((p) => p.value === priority);
-  return index === -1 ? PRIORITIES.length : index;
+export function priorityRank(
+  priority: string | null,
+  priorities: string[],
+): number {
+  if (!priority) return priorities.length + 1;
+  const index = priorities.indexOf(priority);
+  return index === -1 ? priorities.length : index;
 }
 
-export function priorityColor(priority: string | null): MantineColor {
-  return PRIORITIES.find((p) => p.value === priority)?.color ?? "gray";
+export function priorityColor(
+  priority: string | null,
+  priorities: string[],
+): MantineColor {
+  const index = priority ? priorities.indexOf(priority) : -1;
+  return PRIORITY_COLORS[index] ?? "gray";
 }
 
-/** "mario-rossi" → "Mario rossi": label values as readable text. */
+/** "teacher-training" → "Teacher training": label values as text. */
 export function labelValueText(value: string): string {
-  const text = value.replace(/[-_]+/g, " ").trim();
+  const text = value.replace(/[-_~]+/g, " ").trim();
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
@@ -86,19 +89,27 @@ export function formatDeadline(
 }
 
 /** Order inside a column: priority, then deadline, then title. */
-export function compareTasks(a: IBoardTask, b: IBoardTask): number {
-  const byPriority = priorityRank(a.priority) - priorityRank(b.priority);
-  if (byPriority !== 0) return byPriority;
+export function compareTasks(priorities: string[]) {
+  return (a: IBoardTask, b: IBoardTask): number => {
+    const byPriority =
+      priorityRank(a.priority, priorities) -
+      priorityRank(b.priority, priorities);
+    if (byPriority !== 0) return byPriority;
 
-  const aDue = a.nextDeadline ? new Date(a.nextDeadline.dueAt).getTime() : null;
-  const bDue = b.nextDeadline ? new Date(b.nextDeadline.dueAt).getTime() : null;
-  if (aDue !== bDue) {
-    if (aDue === null) return 1;
-    if (bDue === null) return -1;
-    return aDue - bDue;
-  }
+    const aDue = a.nextDeadline
+      ? new Date(a.nextDeadline.dueAt).getTime()
+      : null;
+    const bDue = b.nextDeadline
+      ? new Date(b.nextDeadline.dueAt).getTime()
+      : null;
+    if (aDue !== bDue) {
+      if (aDue === null) return 1;
+      if (bDue === null) return -1;
+      return aDue - bDue;
+    }
 
-  return (a.title ?? "").localeCompare(b.title ?? "");
+    return (a.title ?? "").localeCompare(b.title ?? "");
+  };
 }
 
 export function formatFileSize(bytes: number): string {
@@ -118,9 +129,10 @@ export function taskBoardUrl(spaceSlug: string): string {
 }
 
 /**
- * Markdown of a new task page: the sections of the association's task pages.
- * Status, priority, area and people in charge are labels, shown in the panel
- * under the title, so the table only keeps what labels can't hold.
+ * Markdown of a new task page: a table for what labels can't hold, then
+ * goal, steps (a checklist) and references, in the writer's language.
+ * Status, priority, area and people in charge are labels, shown in the
+ * panel under the title.
  */
 export function newTaskContent(t: TFunction): string {
   return [
@@ -133,19 +145,10 @@ export function newTaskContent(t: TFunction): string {
     "",
     `## ${t("Steps")}`,
     "",
+    // An empty checklist item would become plain text.
     `- [ ] ${t("First step")}`,
     "",
     `## ${t("References")}`,
     "",
   ].join("\n");
-}
-
-/** Same rules as the server's toLabelSlug: "Niccolò D'Amico" → "niccolo-d-amico". */
-export function toLabelSlug(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9_~]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }

@@ -123,8 +123,9 @@ describeE2E('IDQ task board (e2e)', () => {
   async function labelsOf(pageId: string): Promise<string[]> {
     const rows = await sql`
       select l.name from page_labels pl join labels l on l.id = pl.label_id
-      where pl.page_id = ${pageId} order by l.name`;
-    return rows.map((r) => r.name);
+      where pl.page_id = ${pageId}`;
+    // Sorted here: the database collation would ignore the hyphens.
+    return rows.map((r) => r.name).sort();
   }
 
   function expectNoSecret(text: string) {
@@ -180,21 +181,21 @@ describeE2E('IDQ task board (e2e)', () => {
     taskId = await createPage(
       sharedSpaceId,
       'Grant application',
-      ['stato-da-fare', 'priorita-alta', 'area-scuole', 'ref-mario-rossi'],
+      ['status-todo', 'priority-high', 'area-schools', 'assignee-mario-rossi'],
       indexPageId,
     );
     otherTaskId = await createPage(
       sharedSpaceId,
       'Old task',
-      ['stato-bloccato', 'ref-volunteer'],
+      ['status-blocked', 'assignee-volunteer'],
       indexPageId,
     );
-    notTaskId = await createPage(sharedSpaceId, 'Meeting notes', ['verbale']);
+    notTaskId = await createPage(sharedSpaceId, 'Meeting notes', ['minutes']);
     materialPageId = await createPage(sharedSpaceId, 'Grant dossier', []);
 
     secretTaskId = await createPage(secretSpaceId, `Budget ${SECRET_WORD}`, [
-      'stato-in-corso',
-      `ref-${SECRET_WORD}`,
+      'status-in-progress',
+      `assignee-${SECRET_WORD}`,
     ]);
     secretPageId = await createPage(
       secretSpaceId,
@@ -225,15 +226,6 @@ describeE2E('IDQ task board (e2e)', () => {
       });
       expect(res.status).toBe(200);
       expect(res.data.canCreate).toBe(true);
-      expect(res.data.statuses).toEqual([
-        'todo',
-        'in_progress',
-        'to_decide',
-        'waiting',
-        'blocked',
-        'to_review',
-        'done',
-      ]);
 
       const ids = res.data.tasks.map((t: any) => t.pageId);
       expect(ids).toEqual(expect.arrayContaining([taskId, otherTaskId]));
@@ -244,13 +236,13 @@ describeE2E('IDQ task board (e2e)', () => {
       const task = res.data.tasks.find((t: any) => t.pageId === taskId);
       expect(task).toMatchObject({
         status: 'todo',
-        priority: 'alta',
-        areas: ['scuole'],
+        priority: 'high',
+        areas: ['schools'],
         canEdit: true,
         linkCount: 0,
         nextDeadline: null,
       });
-      // ref-mario-rossi is the member; no email leaves the server
+      // assignee-mario-rossi is the member; no email leaves the server
       expect(task.assignees).toEqual([
         {
           value: 'mario-rossi',
@@ -303,10 +295,10 @@ describeE2E('IDQ task board (e2e)', () => {
       expect(res.status).toBe(200);
 
       expect(await labelsOf(taskId)).toEqual([
-        'area-scuole',
-        'priorita-alta',
-        'ref-mario-rossi',
-        'stato-in-corso',
+        'area-schools',
+        'assignee-mario-rossi',
+        'priority-high',
+        'status-in-progress',
       ]);
       const board = await api(member, '/idq/tasks/board', {
         spaceId: sharedSpaceId,
@@ -316,10 +308,10 @@ describeE2E('IDQ task board (e2e)', () => {
     });
 
     it('replaces every status label, and keeps labels still in use', async () => {
-      // otherTask has stato-bloccato; secretTask uses stato-in-corso too
+      // otherTask has status-blocked; taskId uses status-in-progress too
       await api(admin, '/pages/labels/add', {
         pageId: otherTaskId,
-        names: ['stato-in-corso'],
+        names: ['status-in-progress'],
       });
       const res = await api(member, '/idq/tasks/set-status', {
         pageId: otherTaskId,
@@ -327,15 +319,15 @@ describeE2E('IDQ task board (e2e)', () => {
       });
       expect(res.status).toBe(200);
       expect(await labelsOf(otherTaskId)).toEqual([
-        'ref-volunteer',
-        'stato-fatto',
+        'assignee-volunteer',
+        'status-done',
       ]);
-      // stato-bloccato had no other page: deleted, as Docmost does
+      // status-blocked had no other page: deleted, as Docmost does
       const [{ count: bloccato }] =
-        await sql`select count(*)::int from labels where name = 'stato-bloccato'`;
+        await sql`select count(*)::int from labels where name = 'status-blocked'`;
       expect(bloccato).toBe(0);
       const [{ count: inCorso }] =
-        await sql`select count(*)::int from labels where name = 'stato-in-corso'`;
+        await sql`select count(*)::int from labels where name = 'status-in-progress'`;
       expect(inCorso).toBe(1);
     });
 
@@ -345,7 +337,7 @@ describeE2E('IDQ task board (e2e)', () => {
         status: 'done',
       });
       expect(res.status).toBe(403);
-      expect(await labelsOf(taskId)).toContain('stato-in-corso');
+      expect(await labelsOf(taskId)).toContain('status-in-progress');
     });
 
     it('cannot move tasks of a space the user cannot see', async () => {
@@ -355,7 +347,7 @@ describeE2E('IDQ task board (e2e)', () => {
       });
       expect(res.status).toBe(404);
       expectNoSecret(res.text);
-      expect(await labelsOf(secretTaskId)).toContain('stato-in-corso');
+      expect(await labelsOf(secretTaskId)).toContain('status-in-progress');
     });
 
     it('rejects unknown statuses and pages that are not tasks', async () => {
@@ -369,7 +361,7 @@ describeE2E('IDQ task board (e2e)', () => {
         status: 'done',
       });
       expect(notTask.status).toBe(400);
-      expect(await labelsOf(notTaskId)).toEqual(['verbale']);
+      expect(await labelsOf(notTaskId)).toEqual(['minutes']);
     });
   });
 
@@ -382,20 +374,27 @@ describeE2E('IDQ task board (e2e)', () => {
         content: '## Goal\n\n## Steps\n\n- [ ] First step\n',
       });
       expect(res.status).toBe(200);
-      expect(res.data).toMatchObject({
+      expect(res.data.task).toMatchObject({
         title: 'Call the school',
         status: 'waiting',
         canEdit: true,
       });
+      // What the sidebar tree needs to show the new page
+      expect(res.data.page).toMatchObject({
+        id: res.data.task.pageId,
+        parentPageId: indexPageId,
+        spaceId: sharedSpaceId,
+      });
+      expect(typeof res.data.page.position).toBe('string');
       const [page] = await sql`
         select space_id, parent_page_id, content::text as content
-        from pages where id = ${res.data.pageId}`;
+        from pages where id = ${res.data.task.pageId}`;
       expect(page.space_id).toBe(sharedSpaceId);
       // Under the index page that holds the other tasks
       expect(page.parent_page_id).toBe(indexPageId);
       expect(page.content).toContain('First step');
       expect(page.content).toContain('taskItem');
-      expect(await labelsOf(res.data.pageId)).toEqual(['stato-in-attesa']);
+      expect(await labelsOf(res.data.task.pageId)).toEqual(['status-waiting']);
     });
 
     it('readers and non-members cannot create tasks', async () => {
@@ -435,35 +434,35 @@ describeE2E('IDQ task board (e2e)', () => {
         title: 'Fields task',
         status: 'todo',
       });
-      fieldsTaskId = res.data.pageId;
+      fieldsTaskId = res.data.task.pageId;
     });
 
     it('a writer sets priority, areas and people in charge', async () => {
       const res = await api(member, '/idq/tasks/set-fields', {
         pageId: fieldsTaskId,
-        priority: 'Massima',
-        areas: ['Offerta formativa'],
-        assignees: ['mario-rossi', 'Volontario Esterno'],
+        priority: 'Highest',
+        areas: ['Teacher training'],
+        assignees: ['mario-rossi', 'External Volunteer'],
       });
       expect(res.status).toBe(200);
       expect(await labelsOf(fieldsTaskId)).toEqual([
-        'area-offerta-formativa',
-        'priorita-massima',
-        'ref-mario-rossi',
-        'ref-volontario-esterno',
-        'stato-da-fare',
+        'area-teacher-training',
+        'assignee-external-volunteer',
+        'assignee-mario-rossi',
+        'priority-highest',
+        'status-todo',
       ]);
 
       const info = await api(member, '/idq/tasks/page-info', {
         pageId: fieldsTaskId,
       });
       expect(info.data.task).toMatchObject({
-        priority: 'massima',
-        areas: ['offerta-formativa'],
+        priority: 'highest',
+        areas: ['teacher-training'],
       });
       expect(info.data.task.assignees.map((a: any) => a.name)).toEqual([
+        'External Volunteer',
         'Mario Rossi',
-        'Volontario Esterno',
       ]);
     });
 
@@ -474,21 +473,21 @@ describeE2E('IDQ task board (e2e)', () => {
       });
       expect(res.status).toBe(200);
       expect(await labelsOf(fieldsTaskId)).toEqual([
-        'area-offerta-formativa',
-        'ref-mario-rossi',
-        'ref-volontario-esterno',
-        'stato-da-fare',
+        'area-teacher-training',
+        'assignee-external-volunteer',
+        'assignee-mario-rossi',
+        'status-todo',
       ]);
-      // priorita-massima had no other page
+      // priority-highest had no other page
       const [{ count }] =
-        await sql`select count(*)::int from labels where name = 'priorita-massima'`;
+        await sql`select count(*)::int from labels where name = 'priority-highest'`;
       expect(count).toBe(0);
     });
 
     it('rejects values that cannot be labels', async () => {
       const res = await api(member, '/idq/tasks/set-fields', {
         pageId: fieldsTaskId,
-        areas: ['~hidden'],
+        areas: ['!!!'],
       });
       expect(res.status).toBe(400);
     });
@@ -496,21 +495,21 @@ describeE2E('IDQ task board (e2e)', () => {
     it('readers, pages that are not tasks and hidden tasks are refused', async () => {
       const byReader = await api(reader, '/idq/tasks/set-fields', {
         pageId: fieldsTaskId,
-        priority: 'bassa',
+        priority: 'low',
       });
       expect(byReader.status).toBe(403);
       const notTask = await api(member, '/idq/tasks/set-fields', {
         pageId: notTaskId,
-        priority: 'bassa',
+        priority: 'low',
       });
       expect(notTask.status).toBe(400);
       const hidden = await api(member, '/idq/tasks/set-fields', {
         pageId: secretTaskId,
-        priority: 'bassa',
+        priority: 'low',
       });
       expect(hidden.status).toBe(404);
       expectNoSecret(hidden.text);
-      expect(await labelsOf(secretTaskId)).not.toContain('priorita-bassa');
+      expect(await labelsOf(secretTaskId)).not.toContain('priority-low');
     });
 
     it('offers the values in use in the spaces the user can see', async () => {
@@ -518,10 +517,10 @@ describeE2E('IDQ task board (e2e)', () => {
         spaceId: sharedSpaceId,
       });
       expect(res.status).toBe(200);
-      expect(res.data.priorities).toContain('alta');
-      expect(res.data.areas).toEqual(['offerta-formativa', 'scuole']);
+      expect(res.data.priorities).toContain('high');
+      expect(res.data.areas).toEqual(['schools', 'teacher-training']);
       expect(res.data.assignees.map((a: any) => a.value)).toEqual(
-        expect.arrayContaining(['mario-rossi', 'volontario-esterno']),
+        expect.arrayContaining(['mario-rossi', 'external-volunteer']),
       );
       expect(res.data.members).toEqual(
         expect.arrayContaining([
@@ -544,7 +543,7 @@ describeE2E('IDQ task board (e2e)', () => {
   });
 
   describe('people in charge', () => {
-    it('only workspace admins see and change who a ref- label stands for', async () => {
+    it('only workspace admins see and change who a person-in-charge label stands for', async () => {
       expect((await api(member, '/idq/tasks/assignees/list')).status).toBe(403);
       const set = await api(member, '/idq/tasks/assignees/set', {
         value: 'volunteer',
@@ -612,6 +611,19 @@ describeE2E('IDQ task board (e2e)', () => {
       });
       let task = board.data.tasks.find((t: any) => t.pageId === taskId);
       expect(task.assignees[0].user.id).toBe(readerId);
+
+      // "mario-rossi" now stands for the reader: the member list must still
+      // give each member a value of their own (duplicates crash the picker).
+      const options = await api(member, '/idq/tasks/field-options', {
+        spaceId: sharedSpaceId,
+      });
+      const values = options.data.members.map((m: any) => m.value);
+      expect(new Set(values).size).toBe(values.length);
+      const byId = Object.fromEntries(
+        options.data.members.map((m: any) => [m.id, m.value]),
+      );
+      expect(byId[readerId]).toBe('mario-rossi');
+      expect(byId[memberId]).toBe('mario');
 
       const removed = await api(admin, '/idq/tasks/assignees/set', {
         value: 'mario-rossi',
@@ -860,6 +872,252 @@ describeE2E('IDQ task board (e2e)', () => {
       const [{ count }] = await sql`
         select count(*)::int from idq_task_links where task_page_id = ${secretTaskId}`;
       expect(count).toBe(0);
+    });
+  });
+
+  describe('page restrictions', () => {
+    const RESTRICTED_WORD = 'quincerestricted';
+    let restrictedTaskId: string;
+
+    beforeAll(async () => {
+      // A task of the shared space that only the admin can open. Page-level
+      // restrictions are written here directly, as Docmost stores them.
+      restrictedTaskId = await createPage(
+        sharedSpaceId,
+        `Payroll ${RESTRICTED_WORD}`,
+        ['status-todo', `area-${RESTRICTED_WORD}`],
+        indexPageId,
+      );
+      const [access] = await sql`
+        insert into page_access (page_id, workspace_id, space_id, access_level, creator_id)
+        values (${restrictedTaskId}, ${workspaceId}, ${sharedSpaceId}, 'restricted', ${adminId})
+        returning id`;
+      await sql`
+        insert into page_permissions (page_access_id, user_id, role, added_by_id)
+        values (${access.id}, ${adminId}, 'writer', ${adminId})`;
+
+      for (const [taskPageId, targetPageId] of [
+        [taskId, restrictedTaskId],
+        [restrictedTaskId, materialPageId],
+      ]) {
+        const res = await api(admin, '/idq/tasks/links/add', {
+          taskPageId,
+          type: 'page',
+          targetPageId,
+        });
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('the admin sees the restricted task', async () => {
+      const board = await api(admin, '/idq/tasks/board', {
+        spaceId: sharedSpaceId,
+      });
+      expect(board.data.tasks.map((t: any) => t.pageId)).toContain(
+        restrictedTaskId,
+      );
+    });
+
+    it('members of the space do not, anywhere', async () => {
+      for (const viewer of [member, reader]) {
+        const board = await api(viewer, '/idq/tasks/board', {
+          spaceId: sharedSpaceId,
+        });
+        expect(board.data.tasks.map((t: any) => t.pageId)).not.toContain(
+          restrictedTaskId,
+        );
+
+        const info = await api(viewer, '/idq/tasks/page-info', {
+          pageId: restrictedTaskId,
+        });
+        expect(info.status).toBe(404);
+
+        // Not as a material of another task, nor as a task that uses a page
+        const task = await api(viewer, '/idq/tasks/page-info', {
+          pageId: taskId,
+        });
+        expect(
+          task.data.links.map((l: any) => l.page?.id).filter(Boolean),
+        ).not.toContain(restrictedTaskId);
+        const material = await api(viewer, '/idq/tasks/page-info', {
+          pageId: materialPageId,
+        });
+        expect(material.data.usedIn.map((u: any) => u.taskPageId)).toEqual([
+          taskId,
+        ]);
+
+        // Pickers only offer values of pages the viewer can open
+        const options = await api(viewer, '/idq/tasks/field-options', {
+          spaceId: sharedSpaceId,
+        });
+        expect(options.status).toBe(200);
+
+        for (const text of [
+          board.text,
+          info.text,
+          task.text,
+          material.text,
+          options.text,
+        ]) {
+          expect(text).not.toContain(RESTRICTED_WORD);
+        }
+      }
+    });
+
+    it('members cannot change the restricted task', async () => {
+      const move = await api(member, '/idq/tasks/set-status', {
+        pageId: restrictedTaskId,
+        status: 'done',
+      });
+      expect(move.status).toBe(404);
+      const link = await api(member, '/idq/tasks/links/add', {
+        taskPageId: restrictedTaskId,
+        type: 'url',
+        url: 'https://example.org',
+      });
+      expect(link.status).toBe(404);
+      expect(await labelsOf(restrictedTaskId)).toContain('status-todo');
+    });
+  });
+
+  describe('label vocabulary', () => {
+    const custom = {
+      prefixes: {
+        status: 'state-',
+        priority: 'prio-',
+        area: 'team-',
+        assignee: 'owner-',
+      },
+      statuses: {
+        todo: ['open', 'new'],
+        in_progress: ['doing'],
+        to_decide: ['decide'],
+        waiting: ['on-hold'],
+        blocked: ['stuck'],
+        to_review: ['review'],
+        done: ['closed'],
+      },
+      priorities: ['p0', 'p1', 'p2'],
+    };
+    let customTaskId: string;
+    let defaults: unknown;
+
+    beforeAll(async () => {
+      // Labels of a workspace that uses its own words
+      customTaskId = await createPage(
+        sharedSpaceId,
+        'Custom words task',
+        ['state-new', 'prio-p0', 'owner-mario-rossi'],
+        indexPageId,
+      );
+    });
+
+    it('every member reads the vocabulary; the default is English', async () => {
+      const res = await api(member, '/idq/tasks/settings');
+      expect(res.status).toBe(200);
+      expect(res.data.isDefault).toBe(true);
+      expect(res.data.vocabulary.prefixes).toEqual({
+        status: 'status-',
+        priority: 'priority-',
+        area: 'area-',
+        assignee: 'assignee-',
+      });
+      expect(res.data.statuses).toEqual([
+        'todo',
+        'in_progress',
+        'to_decide',
+        'waiting',
+        'blocked',
+        'to_review',
+        'done',
+      ]);
+      defaults = res.data.vocabulary;
+    });
+
+    it('only workspace admins change it, and it is validated', async () => {
+      const byMember = await api(member, '/idq/tasks/settings/update', {
+        vocabulary: custom,
+      });
+      expect(byMember.status).toBe(403);
+
+      const clash = await api(admin, '/idq/tasks/settings/update', {
+        vocabulary: {
+          ...custom,
+          prefixes: { ...custom.prefixes, area: 'state-team-' },
+        },
+      });
+      expect(clash.status).toBe(400);
+
+      const res = await api(admin, '/idq/tasks/settings/update', {
+        vocabulary: custom,
+      });
+      expect(res.status).toBe(200);
+      expect(res.data.isDefault).toBe(false);
+    });
+
+    it('the board reads and writes the workspace words', async () => {
+      const board = await api(member, '/idq/tasks/board', {
+        spaceId: sharedSpaceId,
+      });
+      const ids = board.data.tasks.map((t: any) => t.pageId);
+      // Labels with the old words are no longer tasks
+      expect(ids).toEqual([customTaskId]);
+      expect(board.data.tasks[0]).toMatchObject({
+        status: 'todo',
+        statusValue: 'new',
+        priority: 'p0',
+      });
+      expect(board.data.tasks[0].assignees[0].user.id).toBe(memberId);
+
+      const move = await api(member, '/idq/tasks/set-status', {
+        pageId: customTaskId,
+        status: 'done',
+      });
+      expect(move.status).toBe(200);
+      expect(await labelsOf(customTaskId)).toEqual([
+        'owner-mario-rossi',
+        'prio-p0',
+        'state-closed',
+      ]);
+
+      const fields = await api(member, '/idq/tasks/set-fields', {
+        pageId: customTaskId,
+        priority: 'p1',
+        areas: ['Design'],
+      });
+      expect(fields.status).toBe(200);
+      expect(await labelsOf(customTaskId)).toEqual([
+        'owner-mario-rossi',
+        'prio-p1',
+        'state-closed',
+        'team-design',
+      ]);
+
+      const options = await api(member, '/idq/tasks/field-options', {
+        spaceId: sharedSpaceId,
+      });
+      expect(options.data.priorities).toEqual(['p0', 'p1', 'p2']);
+      expect(options.data.areas).toEqual(['design']);
+
+      const created = await api(member, '/idq/tasks/create', {
+        spaceId: sharedSpaceId,
+        title: 'Started right away',
+        status: 'in_progress',
+      });
+      expect(await labelsOf(created.data.task.pageId)).toEqual(['state-doing']);
+    });
+
+    it('going back to the defaults brings the other tasks back', async () => {
+      const res = await api(admin, '/idq/tasks/settings/update', {
+        vocabulary: defaults,
+      });
+      expect(res.status).toBe(200);
+      const board = await api(member, '/idq/tasks/board', {
+        spaceId: sharedSpaceId,
+      });
+      const ids = board.data.tasks.map((t: any) => t.pageId);
+      expect(ids).toContain(taskId);
+      expect(ids).not.toContain(customTaskId);
     });
   });
 });

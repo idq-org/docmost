@@ -1,40 +1,55 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
+  Logger,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { PagePermissionRepo } from '@docmost/db/repos/page/page-permission.repo';
-import { User, Workspace } from '@docmost/db/types/entity.types';
+import { Page, User, Workspace } from '@docmost/db/types/entity.types';
 import { PageController } from '../../core/page/page.controller';
 import { CreatePageDto } from '../../core/page/dto/create-page.dto';
 import { IdqTaskAccess } from './idq-task-access';
 import { IdqTaskLabelStore, StoredTask } from './idq-task-label-store';
 import {
+  AddTaskLinkInput,
   IdqTaskLinksService,
+  LinkingPage,
   TaskLinkView,
-  TaskUsage,
 } from './idq-task-links.service';
-import { IdqTaskDeadlines, TaskDeadline } from './idq-task-deadlines';
 import {
-  AREA_PREFIX,
-  ASSIGNEE_PREFIX,
-  PRIORITY_PREFIX,
-  TASK_STATUSES,
-  TaskLabelPrefix,
+  IDQ_TASK_DEADLINE_SOURCE,
+  IdqTaskDeadlineSource,
+  TaskDeadline,
+} from './idq-task-deadlines';
+import {
+  LABEL_NAME_MAX_LENGTH,
+  ParsedTaskLabels,
+  TASK_FIELDS,
+  TaskField,
   TaskStatus,
+  TaskVocabulary,
+  fieldOfLabel,
 } from './idq-task-fields';
 import {
   IdqTaskAssigneesService,
   TaskAssignee,
   WorkspaceMember,
 } from './idq-task-assignees.service';
+import { IdqTaskSettingsService } from './idq-task-settings.service';
 
-/** Emitted after a task changes column, for other IDQ features (#12). */
+/**
+ * Emitted when a task is created or changes column through the board or the
+ * task panel, for other IDQ features (e.g. #12 closes the deadlines of a
+ * task moved to "done"). Status labels edited in Docmost's own labels
+ * section are not reported.
+ */
 export const IDQ_TASK_STATUS_CHANGED = 'idq.task.status-changed';
 
 export type IdqTaskStatusChangedEvent = {
@@ -43,6 +58,7 @@ export type IdqTaskStatusChangedEvent = {
   workspaceId: string;
   userId: string;
   status: TaskStatus;
+  /** null for a new task, or a status label outside the vocabulary. */
   previousStatus: TaskStatus | null;
 };
 
@@ -51,7 +67,7 @@ export type BoardTask = {
   slugId: string;
   title: string | null;
   icon: string | null;
-  /** Known status, or null for a `stato-` label the board doesn't know. */
+  /** Known status, or null for a status label outside the vocabulary. */
   status: TaskStatus | null;
   statusValue: string;
   priority: string | null;
@@ -66,25 +82,20 @@ export type BoardTask = {
 
 export type TaskBoard = {
   space: { id: string; name: string; slug: string };
-  statuses: readonly TaskStatus[];
   canCreate: boolean;
   tasks: BoardTask[];
 };
 
-export type TaskFieldsInput = {
-  priority?: string | null;
-  areas?: string[];
-  assignees?: string[];
+/** A new task, and its page as the sidebar tree needs it. */
+export type CreatedTask = {
+  task: BoardTask;
+  page: Pick<
+    Page,
+    'id' | 'slugId' | 'title' | 'icon' | 'position' | 'parentPageId' | 'spaceId'
+  >;
 };
 
-/** Values to choose from in the task panel. */
-export type TaskFieldOptions = {
-  priorities: string[];
-  areas: string[];
-  /** `ref-` values already in use, including names without an account. */
-  assignees: TaskAssignee[];
-  members: WorkspaceMember[];
-};
+export type TaskUsage = LinkingPage & { status: TaskStatus | null };
 
 export type PageTaskInfo = {
   pageId: string;
@@ -95,8 +106,50 @@ export type PageTaskInfo = {
   usedIn: TaskUsage[];
 };
 
+export type TaskFieldsInput = {
+  /** null removes the priority. */
+  priority?: string | null;
+  areas?: string[];
+  assignees?: string[];
+};
+
+/** Values to choose from in the task panel. */
+export type TaskFieldOptions = {
+  priorities: string[];
+  areas: string[];
+  /** Person-in-charge values in use, including names without an account. */
+  assignees: TaskAssignee[];
+  members: WorkspaceMember[];
+};
+
+type StoredTaskPage = Pick<
+  Page,
+  'id' | 'slugId' | 'title' | 'icon' | 'spaceId' | 'createdAt' | 'updatedAt'
+>;
+
+function toStoredTask(
+  page: StoredTaskPage,
+  fields: ParsedTaskLabels,
+): StoredTask {
+  return {
+    ...fields,
+    pageId: page.id,
+    slugId: page.slugId,
+    title: page.title,
+    icon: page.icon,
+    spaceId: page.spaceId,
+    createdAt: page.createdAt as Date,
+    updatedAt: page.updatedAt as Date,
+  };
+}
+
+/**
+ * The task board: reads tasks from labels, filters them by permission and
+ * adds people in charge, deadlines and linked materials.
+ */
 @Injectable()
 export class IdqTaskBoardService implements OnModuleInit {
+  private readonly logger = new Logger('IdqTaskBoardService');
   private pageController: PageController;
 
   constructor(
@@ -107,11 +160,15 @@ export class IdqTaskBoardService implements OnModuleInit {
     private readonly access: IdqTaskAccess,
     private readonly labelStore: IdqTaskLabelStore,
     private readonly links: IdqTaskLinksService,
-    private readonly deadlines: IdqTaskDeadlines,
     private readonly assignees: IdqTaskAssigneesService,
+    private readonly settings: IdqTaskSettingsService,
+    @Optional()
+    @Inject(IDQ_TASK_DEADLINE_SOURCE)
+    private readonly deadlineSource?: IdqTaskDeadlineSource,
   ) {}
 
   onModuleInit() {
+    // PageModule doesn't export it: same approach as the IDQ MCP.
     this.pageController = this.moduleRef.get(PageController, {
       strict: false,
     });
@@ -126,21 +183,27 @@ export class IdqTaskBoardService implements OnModuleInit {
       user,
       spaceId,
     );
-    const space = await this.db
-      .selectFrom('spaces')
-      .select(['id', 'name', 'slug'])
-      .where('id', '=', spaceId)
-      .where('workspaceId', '=', workspace.id)
-      .executeTakeFirstOrThrow();
+    const [space, vocabulary] = await Promise.all([
+      this.db
+        .selectFrom('spaces')
+        .select(['id', 'name', 'slug'])
+        .where('id', '=', spaceId)
+        .where('workspaceId', '=', workspace.id)
+        .executeTakeFirstOrThrow(),
+      this.settings.vocabulary(workspace.id),
+    ]);
 
-    const stored = await this.labelStore.findSpaceTasks(spaceId, workspace.id);
+    const stored = await this.labelStore.findSpaceTasks(
+      spaceId,
+      workspace.id,
+      vocabulary,
+    );
     const visible = await this.access.visiblePageIdsInSpace(
       stored.map((t) => t.pageId),
       user.id,
       spaceId,
     );
     const tasks = stored.filter((t) => visible.has(t.pageId));
-
     const editable = await this.editablePageIds(
       tasks.map((t) => t.pageId),
       user,
@@ -150,7 +213,6 @@ export class IdqTaskBoardService implements OnModuleInit {
 
     return {
       space,
-      statuses: TASK_STATUSES,
       canCreate: canEditSpace,
       tasks: await this.toBoardTasks(tasks, user, workspace.id, editable),
     };
@@ -167,43 +229,30 @@ export class IdqTaskBoardService implements OnModuleInit {
       user,
       workspace.id,
     );
-    const fields = await this.labelStore.findPageTask(page.id);
+    const vocabulary = await this.settings.vocabulary(workspace.id);
+    const fields = await this.labelStore.findPageTask(page.id, vocabulary);
     const isTask = fields.statusValue !== null;
 
+    const [boardTask, links, usedIn] = await Promise.all([
+      isTask
+        ? this.toBoardTasks(
+            [toStoredTask(page, fields)],
+            user,
+            workspace.id,
+            new Set(canEdit ? [page.id] : []),
+            { withLinkCount: false },
+          ).then(([first]) => first)
+        : null,
+      isTask ? this.links.listForTask(page.id, user, workspace.id) : [],
+      this.usedIn(page.id, user, workspace.id, vocabulary),
+    ]);
+
     let task: PageTaskInfo['task'] = null;
-    if (isTask) {
-      const [boardTask] = await this.toBoardTasks(
-        [
-          {
-            ...fields,
-            pageId: page.id,
-            slugId: page.slugId,
-            title: page.title,
-            icon: page.icon,
-            spaceId: page.spaceId,
-            createdAt: page.createdAt as Date,
-            updatedAt: page.updatedAt as Date,
-          },
-        ],
-        user,
-        workspace.id,
-        new Set(canEdit ? [page.id] : []),
-        { withLinkCount: false },
-      );
-      const { linkCount, ...rest } = boardTask;
+    if (boardTask) {
+      const { linkCount: _linkCount, ...rest } = boardTask;
       task = rest;
     }
-
-    return {
-      pageId: page.id,
-      isTask,
-      canEdit,
-      task,
-      links: isTask
-        ? await this.links.listForTask(page.id, user, workspace.id)
-        : [],
-      usedIn: await this.links.usedIn(page.id, user, workspace.id),
-    };
+    return { pageId: page.id, isTask, canEdit, task, links, usedIn };
   }
 
   async setStatus(
@@ -212,29 +261,56 @@ export class IdqTaskBoardService implements OnModuleInit {
     user: User,
     workspace: Workspace,
   ): Promise<void> {
-    const page = await this.access.findEditablePage(pageId, user, workspace.id);
-    const fields = await this.labelStore.findPageTask(page.id);
-    if (fields.statusValue === null) {
-      throw new BadRequestException('The page is not a task');
-    }
+    const { page, fields, vocabulary } = await this.findEditableTask(
+      pageId,
+      user,
+      workspace,
+    );
     if (fields.status === status) return;
 
-    await this.labelStore.setStatus(page.id, workspace.id, status);
+    await this.labelStore.setStatus(page.id, workspace.id, vocabulary, status);
+    this.emitStatusChanged(page, workspace, user, status, fields.status);
+  }
 
-    const event: IdqTaskStatusChangedEvent = {
-      pageId: page.id,
-      spaceId: page.spaceId,
-      workspaceId: workspace.id,
-      userId: user.id,
-      status,
-      previousStatus: fields.status,
-    };
-    this.eventEmitter.emit(IDQ_TASK_STATUS_CHANGED, event);
+  /** Replaces priority, areas and people in charge of a task. */
+  async setFields(
+    pageId: string,
+    input: TaskFieldsInput,
+    user: User,
+    workspace: Workspace,
+  ): Promise<void> {
+    const { page, vocabulary } = await this.findEditableTask(
+      pageId,
+      user,
+      workspace,
+    );
+
+    const changes: Partial<Record<TaskField, string[]>> = {};
+    if (input.priority !== undefined) {
+      changes.priority = input.priority ? [input.priority] : [];
+    }
+    if (input.areas !== undefined) changes.area = input.areas;
+    if (input.assignees !== undefined) changes.assignee = input.assignees;
+
+    for (const [field, values] of Object.entries(changes)) {
+      for (const value of values) {
+        const name = vocabulary.prefixes[field as TaskField] + value;
+        if (name.length > LABEL_NAME_MAX_LENGTH) {
+          throw new BadRequestException(`"${value}" is too long`);
+        }
+      }
+    }
+    await this.labelStore.replaceFields(
+      page.id,
+      workspace.id,
+      vocabulary,
+      changes,
+    );
   }
 
   /**
    * Creates a task page in the given column, under the page that holds the
-   * other tasks of the space (the index page) or at the root.
+   * other tasks of the space (an index page, for instance) or at the root.
    */
   async createTask(
     input: {
@@ -246,13 +322,15 @@ export class IdqTaskBoardService implements OnModuleInit {
     },
     user: User,
     workspace: Workspace,
-  ): Promise<BoardTask> {
+  ): Promise<CreatedTask> {
     const { canEdit } = await this.access.spacePermissions(user, input.spaceId);
     if (!canEdit) throw new ForbiddenException();
 
+    const vocabulary = await this.settings.vocabulary(workspace.id);
     const parentPageId = await this.labelStore.usualTaskParent(
       input.spaceId,
       workspace.id,
+      vocabulary,
     );
     const create = (parent: string | null) =>
       // Through Docmost's controller: same permission checks and audit log
@@ -278,51 +356,44 @@ export class IdqTaskBoardService implements OnModuleInit {
       if (!parentPageId || !(err instanceof ForbiddenException)) throw err;
       page = await create(null);
     }
-    await this.labelStore.setStatus(page.id, workspace.id, input.status);
 
-    const fields = await this.labelStore.findPageTask(page.id);
+    await this.labelStore.setStatus(
+      page.id,
+      workspace.id,
+      vocabulary,
+      input.status,
+    );
+    this.emitStatusChanged(page, workspace, user, input.status, null);
+
+    const fields = await this.labelStore.findPageTask(page.id, vocabulary);
     const [task] = await this.toBoardTasks(
-      [
-        {
-          ...fields,
-          pageId: page.id,
-          slugId: page.slugId,
-          title: page.title,
-          icon: page.icon,
-          spaceId: page.spaceId,
-          createdAt: page.createdAt as Date,
-          updatedAt: page.updatedAt as Date,
-        },
-      ],
+      [toStoredTask(page, fields)],
       user,
       workspace.id,
       new Set([page.id]),
     );
-    return task;
+    return {
+      task,
+      page: {
+        id: page.id,
+        slugId: page.slugId,
+        title: page.title,
+        icon: page.icon,
+        position: page.position,
+        parentPageId: page.parentPageId,
+        spaceId: page.spaceId,
+      },
+    };
   }
 
-  /** Replaces priority, areas and people in charge of a task. */
-  async setFields(
-    pageId: string,
-    input: TaskFieldsInput,
+  async addLink(
+    taskPageId: string,
+    input: AddTaskLinkInput,
     user: User,
     workspace: Workspace,
-  ): Promise<void> {
-    const page = await this.access.findEditablePage(pageId, user, workspace.id);
-    const fields = await this.labelStore.findPageTask(page.id);
-    if (fields.statusValue === null) {
-      throw new BadRequestException('The page is not a task');
-    }
-
-    const changes: Partial<Record<TaskLabelPrefix, string[]>> = {};
-    if (input.priority !== undefined) {
-      changes[PRIORITY_PREFIX] = input.priority ? [input.priority] : [];
-    }
-    if (input.areas !== undefined) changes[AREA_PREFIX] = input.areas;
-    if (input.assignees !== undefined) {
-      changes[ASSIGNEE_PREFIX] = input.assignees;
-    }
-    await this.labelStore.replaceFields(page.id, workspace.id, changes);
+  ): Promise<TaskLinkView> {
+    const { page } = await this.findEditableTask(taskPageId, user, workspace);
+    return this.links.add(page, input, user, workspace.id);
   }
 
   async getFieldOptions(
@@ -331,17 +402,104 @@ export class IdqTaskBoardService implements OnModuleInit {
     workspace: Workspace,
   ): Promise<TaskFieldOptions> {
     await this.access.spacePermissions(user, spaceId);
+    const vocabulary = await this.settings.vocabulary(workspace.id);
     const [used, resolve, members] = await Promise.all([
-      this.labelStore.usedValues(workspace.id, user.id),
+      this.usedValues(user, workspace.id, vocabulary),
       this.assignees.resolver(workspace.id),
       this.assignees.members(workspace.id),
     ]);
     return {
-      priorities: used[PRIORITY_PREFIX],
-      areas: used[AREA_PREFIX],
-      assignees: used[ASSIGNEE_PREFIX].map(resolve),
+      priorities: [...new Set([...vocabulary.priorities, ...used.priority])],
+      areas: used.area,
+      assignees: used.assignee.map(resolve),
       members,
     };
+  }
+
+  /**
+   * Values of the task labels on the pages the user can open, for pickers.
+   * Stricter than Docmost's label list, which ignores page restrictions.
+   */
+  async usedValues(
+    user: User,
+    workspaceId: string,
+    vocabulary: TaskVocabulary,
+  ): Promise<Record<TaskField, string[]>> {
+    const labels = await this.labelStore.labelsInUserSpaces(
+      workspaceId,
+      user.id,
+      vocabulary,
+    );
+    const visible = await this.access.visiblePageIds(
+      labels.map((l) => l.pageId),
+      user.id,
+      workspaceId,
+    );
+
+    const values = Object.fromEntries(
+      TASK_FIELDS.map((field) => [field, new Set<string>()]),
+    ) as Record<TaskField, Set<string>>;
+    for (const { pageId, name } of labels) {
+      const parsed = visible.has(pageId) && fieldOfLabel(name, vocabulary);
+      if (parsed) values[parsed.field].add(parsed.value);
+    }
+    return Object.fromEntries(
+      TASK_FIELDS.map((field) => [field, [...values[field]].sort()]),
+    ) as Record<TaskField, string[]>;
+  }
+
+  /** Tasks that link this page as material, with their status. */
+  private async usedIn(
+    pageId: string,
+    user: User,
+    workspaceId: string,
+    vocabulary: TaskVocabulary,
+  ): Promise<TaskUsage[]> {
+    const pages = await this.links.linkingPages(pageId, user, workspaceId);
+    const fields = await this.labelStore.findPagesTasks(
+      pages.map((p) => p.taskPageId),
+      vocabulary,
+    );
+    // A page that is no longer a task doesn't count.
+    return pages
+      .filter((p) => fields.get(p.taskPageId).statusValue !== null)
+      .map((p) => ({ ...p, status: fields.get(p.taskPageId).status }));
+  }
+
+  private async findEditableTask(
+    pageId: string,
+    user: User,
+    workspace: Workspace,
+  ): Promise<{
+    page: Page;
+    fields: ParsedTaskLabels;
+    vocabulary: TaskVocabulary;
+  }> {
+    const page = await this.access.findEditablePage(pageId, user, workspace.id);
+    const vocabulary = await this.settings.vocabulary(workspace.id);
+    const fields = await this.labelStore.findPageTask(page.id, vocabulary);
+    if (fields.statusValue === null) {
+      throw new BadRequestException('The page is not a task');
+    }
+    return { page, fields, vocabulary };
+  }
+
+  private emitStatusChanged(
+    page: Pick<Page, 'id' | 'spaceId'>,
+    workspace: Workspace,
+    user: User,
+    status: TaskStatus,
+    previousStatus: TaskStatus | null,
+  ) {
+    const event: IdqTaskStatusChangedEvent = {
+      pageId: page.id,
+      spaceId: page.spaceId,
+      workspaceId: workspace.id,
+      userId: user.id,
+      status,
+      previousStatus,
+    };
+    this.eventEmitter.emit(IDQ_TASK_STATUS_CHANGED, event);
   }
 
   /**
@@ -376,9 +534,9 @@ export class IdqTaskBoardService implements OnModuleInit {
   ): Promise<BoardTask[]> {
     const pageIds = tasks.map((t) => t.pageId);
     const [deadlines, linkCounts, resolveAssignee] = await Promise.all([
-      this.deadlines.nextOpenDeadlines(pageIds),
+      this.nextDeadlines(pageIds),
       opts.withLinkCount === false
-        ? Promise.resolve(new Map<string, number>())
+        ? new Map<string, number>()
         : this.links.countForTasks(pageIds, user, workspaceId),
       this.assignees.resolver(workspaceId),
     ]);
@@ -401,5 +559,18 @@ export class IdqTaskBoardService implements OnModuleInit {
         updatedAt: t.updatedAt,
       }))
       .sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''));
+  }
+
+  /** Deadlines are optional: a failing source never breaks the board. */
+  private async nextDeadlines(
+    pageIds: string[],
+  ): Promise<Map<string, TaskDeadline>> {
+    if (!this.deadlineSource || pageIds.length === 0) return new Map();
+    try {
+      return await this.deadlineSource.nextOpenDeadlines(pageIds);
+    } catch (err) {
+      this.logger.warn(`Deadlines unavailable: ${err}`);
+      return new Map();
+    }
   }
 }

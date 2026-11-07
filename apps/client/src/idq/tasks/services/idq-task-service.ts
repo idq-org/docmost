@@ -2,53 +2,16 @@ import api from "@/lib/api-client";
 import {
   IAddTaskLink,
   IAssigneeMapping,
-  IBoardTask,
+  ICreatedTask,
   IPageTaskInfo,
   ITaskBoard,
   ITaskFieldOptions,
   ITaskFieldsInput,
   ITaskLink,
+  ITaskSettings,
+  ITaskVocabulary,
   TaskStatus,
 } from "../types";
-
-export async function getTaskBoard(spaceId: string): Promise<ITaskBoard> {
-  const req = await api.post<ITaskBoard>("/idq/tasks/board", { spaceId });
-  return req.data;
-}
-
-export async function getPageTaskInfo(pageId: string): Promise<IPageTaskInfo> {
-  const req = await api.post<IPageTaskInfo>("/idq/tasks/page-info", {
-    pageId,
-  });
-  return req.data;
-}
-
-export async function setTaskStatus(data: {
-  pageId: string;
-  status: TaskStatus;
-}): Promise<void> {
-  await api.post("/idq/tasks/set-status", data);
-}
-
-export async function createTask(data: {
-  spaceId: string;
-  title: string;
-  status: TaskStatus;
-  /** Markdown of the new page. */
-  content?: string;
-}): Promise<IBoardTask> {
-  const req = await api.post<IBoardTask>("/idq/tasks/create", data);
-  return req.data;
-}
-
-export async function addTaskLink(data: IAddTaskLink): Promise<ITaskLink> {
-  const req = await api.post<ITaskLink>("/idq/tasks/links/add", data);
-  return req.data;
-}
-
-export async function removeTaskLink(linkId: string): Promise<void> {
-  await api.post("/idq/tasks/links/remove", { linkId });
-}
 
 export interface IAttachmentResult {
   id: string;
@@ -61,37 +24,52 @@ export interface IAttachmentResult {
   createdAt: string;
 }
 
-export async function searchTaskAttachments(
-  query: string,
-): Promise<IAttachmentResult[]> {
-  const req = await api.post<IAttachmentResult[]>(
-    "/idq/tasks/attachments/search",
-    { query },
-  );
+async function post<T>(path: string, body?: object): Promise<T> {
+  const req = await api.post<T>(`/idq/tasks${path}`, body);
   return req.data;
 }
 
-export async function setTaskFields(data: ITaskFieldsInput): Promise<void> {
-  await api.post("/idq/tasks/set-fields", data);
-}
+export const getTaskBoard = (spaceId: string) =>
+  post<ITaskBoard>("/board", { spaceId });
 
-export async function getTaskFieldOptions(
-  spaceId: string,
-): Promise<ITaskFieldOptions> {
-  const req = await api.post<ITaskFieldOptions>("/idq/tasks/field-options", {
-    spaceId,
-  });
-  return req.data;
-}
+export const getPageTaskInfo = (pageId: string) =>
+  post<IPageTaskInfo>("/page-info", { pageId });
 
-export async function getAssigneeMappings(): Promise<IAssigneeMapping[]> {
-  const req = await api.post<IAssigneeMapping[]>("/idq/tasks/assignees/list");
-  return req.data;
-}
+export const setTaskStatus = (data: { pageId: string; status: TaskStatus }) =>
+  post<void>("/set-status", data);
 
-export async function setAssigneeMapping(data: {
+export const setTaskFields = (data: ITaskFieldsInput) =>
+  post<void>("/set-fields", data);
+
+export const createTask = (data: {
+  spaceId: string;
+  title: string;
+  status: TaskStatus;
+  /** Markdown of the new page. */
+  content?: string;
+}) => post<ICreatedTask>("/create", data);
+
+export const getTaskFieldOptions = (spaceId: string) =>
+  post<ITaskFieldOptions>("/field-options", { spaceId });
+
+export const getTaskSettings = () => post<ITaskSettings>("/settings");
+
+export const updateTaskSettings = (vocabulary: ITaskVocabulary) =>
+  post<ITaskSettings>("/settings/update", { vocabulary });
+
+export const getAssigneeMappings = () =>
+  post<IAssigneeMapping[]>("/assignees/list");
+
+export const setAssigneeMapping = (data: {
   value: string;
   userId: string | null;
-}): Promise<void> {
-  await api.post("/idq/tasks/assignees/set", data);
-}
+}) => post<void>("/assignees/set", data);
+
+export const addTaskLink = (data: IAddTaskLink) =>
+  post<ITaskLink>("/links/add", data);
+
+export const removeTaskLink = (linkId: string) =>
+  post<void>("/links/remove", { linkId });
+
+export const searchTaskAttachments = (query: string) =>
+  post<IAttachmentResult[]>("/attachments/search", { query });
