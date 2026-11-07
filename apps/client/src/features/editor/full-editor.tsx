@@ -1,4 +1,5 @@
 import classes from "@/features/editor/styles/editor.module.css";
+import { IdqPageBlocks } from "@/idq/page-blocks"; // IDQ: our blocks under the title
 import React, { useEffect } from "react";
 import { TitleEditor } from "@/features/editor/title-editor";
 import PageEditor from "@/features/editor/page-editor";
@@ -111,6 +112,7 @@ export function FullEditor({
         contributors={contributors}
         readOnly={!editable}
       />
+      <IdqPageBlocks pageId={pageId} spaceId={spaceId} spaceSlug={spaceSlug} /* IDQ: our blocks under the title */ />
       <MemoizedPageEditor
         pageId={pageId}
         editable={editable}

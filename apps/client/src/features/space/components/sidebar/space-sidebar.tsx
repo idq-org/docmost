@@ -27,6 +27,7 @@ import {
   useUnwatchSpaceMutation,
 } from "@/features/space/queries/space-watcher-query.ts";
 import classes from "./space-sidebar.module.css";
+import { IdqSpaceSidebarItems } from "@/idq/space-sidebar-items"; // IDQ: our sidebar entries
 import React from "react";
 import { useAtom } from "jotai";
 import { useTreeMutation } from "@/features/page/tree/hooks/use-tree-mutation.ts";
@@ -132,6 +133,7 @@ export function SpaceSidebar() {
                 <span>{t("Overview")}</span>
               </div>
             </UnstyledButton>
+            <IdqSpaceSidebarItems spaceSlug={spaceSlug} /* IDQ: our sidebar entries */ />
 
             <UnstyledButton
               className={classes.menu}

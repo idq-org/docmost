@@ -1,6 +1,6 @@
 # Docmost — Informatici di Quartiere fork
 
-Fork of [docmost/docmost](https://github.com/docmost/docmost) that IDQ uses for the association's knowledge base, which agents can also read over MCP (see [MCP.md](MCP.md)). The project's original README is [`README.md`](../README.md).
+Fork of [docmost/docmost](https://github.com/docmost/docmost) that IDQ uses for the association's knowledge base, which agents can also read over MCP (see [MCP.md](MCP.md)), with a task board for each space (see [TASKS.md](TASKS.md)). The project's original README is [`README.md`](../README.md).
 
 ## Branches
 

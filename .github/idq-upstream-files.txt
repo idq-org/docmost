@@ -8,5 +8,7 @@
 # Format: <path>  # <reason>
 
 apps/server/src/app.module.ts  # imports IdqModule, which registers every IDQ server feature
-apps/client/src/App.tsx  # spreads idqSettingsRoutes (apps/client/src/idq/routes.tsx)
+apps/client/src/App.tsx  # spreads idqLayoutRoutes and idqSettingsRoutes (apps/client/src/idq/routes.tsx)
 apps/client/src/components/settings/settings-sidebar.tsx  # spreads idqAccountSettingsItems (apps/client/src/idq/settings-nav.ts)
+apps/client/src/features/space/components/sidebar/space-sidebar.tsx  # renders IdqSpaceSidebarItems (apps/client/src/idq/space-sidebar-items.tsx)
+apps/client/src/features/editor/full-editor.tsx  # renders IdqPageBlocks under the page title (apps/client/src/idq/page-blocks.tsx)
