@@ -1,7 +1,7 @@
 import React from "react";
 import { Group, Text } from "@mantine/core";
 import classes from "./auth.module.css";
-import { SourceLink } from "@/features/idq-source-link/source-link";
+import { SourceLink } from "@/idq/source-link/source-link";
 
 type AuthLayoutProps = {
   children: React.ReactNode;

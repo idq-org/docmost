@@ -24,7 +24,7 @@ import { useToggleSidebar } from "@/components/layouts/global/hooks/hooks/use-to
 import GlobalSidebar from "@/components/layouts/global/global-sidebar.tsx";
 import { ASIDE_PANEL_ID } from "@/hooks/use-toggle-aside.tsx";
 import { MAIN_CONTENT_ID, SkipToMain } from "@/components/ui/skip-to-main.tsx";
-import { SourceLink } from "@/features/idq-source-link/source-link.tsx";
+import { SourceLink } from "@/idq/source-link/source-link.tsx";
 
 export default function GlobalAppShell({
   children,
