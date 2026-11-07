@@ -140,7 +140,7 @@ export default function GlobalAppShell({
             {showGlobalSidebar && <GlobalSidebar />}
           </AppShell.Section>
           {/* IDQ: source code link (AGPL-3.0) */}
-          <SourceLink />
+          <SourceLink compact />
         </AppShell.Navbar>
         <AppShell.Main id={MAIN_CONTENT_ID} tabIndex={-1}>
           {isSettingsRoute ? (
