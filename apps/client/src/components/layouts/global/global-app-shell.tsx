@@ -91,90 +91,90 @@ export default function GlobalAppShell({
     <>
       <SkipToMain />
       <AppShell
-        header={{ height: 45 }}
-        navbar={{
-          width: isSpaceRoute ? sidebarWidth : 300,
+      header={{ height: 45 }}
+      navbar={{
+        width: isSpaceRoute ? sidebarWidth : 300,
+        breakpoint: "sm",
+        collapsed: {
+          mobile: !mobileOpened,
+          desktop: !desktopOpened,
+        },
+      }}
+      aside={
+        isPageRoute && {
+          width: 350,
           breakpoint: "sm",
-          collapsed: {
-            mobile: !mobileOpened,
-            desktop: !desktopOpened,
-          },
-        }}
-        aside={
-          isPageRoute && {
-            width: 350,
-            breakpoint: "sm",
-            collapsed: { mobile: !isAsideOpen, desktop: !isAsideOpen },
-          }
+          collapsed: { mobile: !isAsideOpen, desktop: !isAsideOpen },
         }
-        padding="md"
+      }
+      padding="md"
+    >
+      <AppShell.Header px="md" className={classes.header}>
+        <AppHeader />
+      </AppShell.Header>
+      <AppShell.Navbar
+        className={classes.navbar}
+        withBorder={false}
+        ref={sidebarRef}
+        aria-label={
+          isSpaceRoute
+            ? t("Space navigation")
+            : isSettingsRoute
+              ? t("Settings navigation")
+              : isAiRoute
+                ? t("AI navigation")
+                : t("Main navigation")
+        }
       >
-        <AppShell.Header px="md" className={classes.header}>
-          <AppHeader />
-        </AppShell.Header>
-        <AppShell.Navbar
-          className={classes.navbar}
+        {isSpaceRoute && (
+          <div className={classes.resizeHandle} onMouseDown={startResizing} />
+        )}
+        <AppShell.Section grow style={{ minHeight: 0 }}>
+          {isSpaceRoute && <SpaceSidebar />}
+          {isSettingsRoute && <SettingsSidebar />}
+          {isAiRoute && (
+            <React.Suspense fallback={null}>
+              <AiChatSidebar />
+            </React.Suspense>
+          )}
+          {showGlobalSidebar && <GlobalSidebar />}
+        </AppShell.Section>
+        {/* IDQ: source code link (AGPL-3.0) */}
+        <SourceLink compact />
+      </AppShell.Navbar>
+      <AppShell.Main id={MAIN_CONTENT_ID} tabIndex={-1}>
+        {isSettingsRoute ? (
+          <Container size={900} pb={80}>
+            {children}
+          </Container>
+        ) : (
+          children
+        )}
+      </AppShell.Main>
+
+      {isPageRoute && (
+        <AppShell.Aside
+          id={ASIDE_PANEL_ID}
+          tabIndex={-1}
+          className={classes.aside}
+          p="md"
           withBorder={false}
-          ref={sidebarRef}
           aria-label={
-            isSpaceRoute
-              ? t("Space navigation")
-              : isSettingsRoute
-                ? t("Settings navigation")
-                : isAiRoute
-                  ? t("AI navigation")
-                  : t("Main navigation")
+            asideTab === "comments"
+              ? t("Comments")
+              : asideTab === "toc"
+                ? t("Table of contents")
+                : asideTab === "chat"
+                  ? t("AI Chat")
+                  : asideTab === "details"
+                    ? t("Details")
+                    : undefined
           }
         >
-          {isSpaceRoute && (
-            <div className={classes.resizeHandle} onMouseDown={startResizing} />
-          )}
-          <AppShell.Section grow style={{ minHeight: 0 }}>
-            {isSpaceRoute && <SpaceSidebar />}
-            {isSettingsRoute && <SettingsSidebar />}
-            {isAiRoute && (
-              <React.Suspense fallback={null}>
-                <AiChatSidebar />
-              </React.Suspense>
-            )}
-            {showGlobalSidebar && <GlobalSidebar />}
-          </AppShell.Section>
-          {/* IDQ: source code link (AGPL-3.0) */}
-          <SourceLink compact />
-        </AppShell.Navbar>
-        <AppShell.Main id={MAIN_CONTENT_ID} tabIndex={-1}>
-          {isSettingsRoute ? (
-            <Container size={900} pb={80}>
-              {children}
-            </Container>
-          ) : (
-            children
-          )}
-        </AppShell.Main>
-
-        {isPageRoute && (
-          <AppShell.Aside
-            id={ASIDE_PANEL_ID}
-            tabIndex={-1}
-            className={classes.aside}
-            p="md"
-            withBorder={false}
-            aria-label={
-              asideTab === "comments"
-                ? t("Comments")
-                : asideTab === "toc"
-                  ? t("Table of contents")
-                  : asideTab === "chat"
-                    ? t("AI Chat")
-                    : asideTab === "details"
-                      ? t("Details")
-                      : undefined
-            }
-          >
-            <Aside />
-          </AppShell.Aside>
-        )}
-      </AppShell>
+          <Aside />
+        </AppShell.Aside>
+      )}
+    </AppShell>
     </>
   );
 }
