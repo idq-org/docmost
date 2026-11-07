@@ -2,12 +2,19 @@ name: Sync upstream
 
 # Brings main up to date with docmost/docmost and, if there is anything new,
 # opens a main → idq PR to be merged with a merge commit.
+#
+# Token: the SYNC_TOKEN secret, a fine-grained token with Contents, Pull requests
+# and Workflows read/write on this repo (see "Updates from Docmost" in
+# .github/README.md). Without it the action falls back to GITHUB_TOKEN, which
+# GitHub never allows to update .github/workflows: the sync then fails whenever
+# Docmost changes its own workflows, and the PRs it opens don't trigger CI.
 
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
 
+# Used only by the GITHUB_TOKEN fallback.
 permissions:
   contents: write
   pull-requests: write
@@ -21,11 +28,20 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
+      HAS_SYNC_TOKEN: ${{ secrets.SYNC_TOKEN != '' }}
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Update main from docmost/docmost
-        run: gh api -X POST "repos/$GH_REPO/merge-upstream" -f branch=main
+        run: |
+          if ! out=$(gh api -X POST "repos/$GH_REPO/merge-upstream" -f branch=main 2>&1); then
+            echo "$out"
+            if [ "$HAS_SYNC_TOKEN" != true ] && grep -q workflows <<<"$out"; then
+              echo "::error::Docmost changed files in .github/workflows and GITHUB_TOKEN can't copy them. Add the SYNC_TOKEN secret (see .github/README.md), or update main by hand: gh repo sync $GH_REPO --branch main"
+            fi
+            exit 1
+          fi
+          echo "$out"
 
       - name: Open the main → idq PR if idq is behind
         run: |
@@ -47,15 +63,18 @@ jobs:
           Do **not** delete the main branch after the merge."
           fi
 
-      # PRs created by the GITHUB_TOKEN don't trigger CI: we run it ourselves on main's head.
-      - name: Run CI on main's head
+      # With SYNC_TOKEN, opening the PR or pushing to main triggers CI by itself.
+      # PRs and pushes made by GITHUB_TOKEN don't: start CI on the PR by hand. It
+      # builds the PR merge result and writes "docker-build" on the PR head.
+      - name: Run CI on the PR (GITHUB_TOKEN fallback)
+        if: env.HAS_SYNC_TOKEN != 'true'
         run: |
-          ahead=$(gh api "repos/$GH_REPO/compare/idq...main" --jq .ahead_by)
-          [ "$ahead" -gt 0 ] || exit 0
-          sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
-          checked=$(gh api "repos/$GH_REPO/commits/$sha/status" --jq '[.statuses[] | select(.context == "docker-build")] | length')
-          if [ "$checked" -gt 0 ]; then
-            echo "CI already run on $sha"
+          pr=$(gh pr list --base idq --head main --state open --json number --jq '.[0].number')
+          [ -n "$pr" ] || exit 0
+          sha=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+          state=$(gh api "repos/$GH_REPO/commits/$sha/status" --jq '[.statuses[] | select(.context == "docker-build")][0].state // ""')
+          if [ "$state" = success ] || [ "$state" = pending ]; then
+            echo "docker-build is already $state on $sha"
           else
-            gh workflow run idq-ci.yml --ref idq -f sha="$sha"
+            gh workflow run idq-ci.yml --ref idq -f pr="$pr"
           fi
