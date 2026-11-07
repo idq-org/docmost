@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     POSTHOG_KEY,
     AI_VECTOR_DRIVER,
     BETA_PUBLIC_SPACES,
+    IDQ_SOURCE_COMMIT,
   } = loadEnv(mode, envPath, "");
 
   return {
@@ -37,6 +38,8 @@ export default defineConfig(({ mode }) => {
         BETA_PUBLIC_SPACES,
       },
       APP_VERSION: JSON.stringify(process.env.npm_package_version),
+      // Empty string, never undefined: an undefined define would break the bundle
+      IDQ_SOURCE_COMMIT: JSON.stringify(IDQ_SOURCE_COMMIT ?? ""),
     },
     plugins: [react()],
     build: {

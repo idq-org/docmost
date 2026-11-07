@@ -24,6 +24,7 @@ import { useToggleSidebar } from "@/components/layouts/global/hooks/hooks/use-to
 import GlobalSidebar from "@/components/layouts/global/global-sidebar.tsx";
 import { ASIDE_PANEL_ID } from "@/hooks/use-toggle-aside.tsx";
 import { MAIN_CONTENT_ID, SkipToMain } from "@/components/ui/skip-to-main.tsx";
+import { SourceLink } from "@/features/idq-source-link/source-link.tsx";
 
 export default function GlobalAppShell({
   children,
@@ -128,14 +129,17 @@ export default function GlobalAppShell({
         {isSpaceRoute && (
           <div className={classes.resizeHandle} onMouseDown={startResizing} />
         )}
-        {isSpaceRoute && <SpaceSidebar />}
-        {isSettingsRoute && <SettingsSidebar />}
-        {isAiRoute && (
-          <React.Suspense fallback={null}>
-            <AiChatSidebar />
-          </React.Suspense>
-        )}
-        {showGlobalSidebar && <GlobalSidebar />}
+        <AppShell.Section grow style={{ minHeight: 0 }}>
+          {isSpaceRoute && <SpaceSidebar />}
+          {isSettingsRoute && <SettingsSidebar />}
+          {isAiRoute && (
+            <React.Suspense fallback={null}>
+              <AiChatSidebar />
+            </React.Suspense>
+          )}
+          {showGlobalSidebar && <GlobalSidebar />}
+        </AppShell.Section>
+        <SourceLink />
       </AppShell.Navbar>
       <AppShell.Main id={MAIN_CONTENT_ID} tabIndex={-1}>
         {isSettingsRoute ? (
