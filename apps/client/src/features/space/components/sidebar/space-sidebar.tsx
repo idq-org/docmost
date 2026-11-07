@@ -61,6 +61,7 @@ import { useHasFeature } from "@/ee/hooks/use-feature";
 import { useUpgradeLabel } from "@/ee/hooks/use-upgrade-label";
 import { Feature } from "@/ee/features";
 import { ErrorBoundary } from "react-error-boundary";
+import { IdqSpaceSidebarItems } from "@/idq/space-sidebar-items"; // IDQ: our sidebar entries
 
 export function SpaceSidebar() {
   const { t } = useTranslation();
@@ -132,6 +133,7 @@ export function SpaceSidebar() {
                 <span>{t("Overview")}</span>
               </div>
             </UnstyledButton>
+            <IdqSpaceSidebarItems spaceSlug={spaceSlug} /* IDQ: our sidebar entries */ />
 
             <UnstyledButton
               className={classes.menu}

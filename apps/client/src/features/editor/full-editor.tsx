@@ -27,6 +27,7 @@ import { DeletedPageBanner } from "@/features/page/trash/components/deleted-page
 import clsx from "clsx";
 import { currentPageEditModeAtom } from "@/features/editor/atoms/editor-atoms.ts";
 import { EmptyPageGetStarted } from "@/features/editor/components/empty-page/empty-page-get-started";
+import { IdqPageBlocks } from "@/idq/page-blocks"; // IDQ: our blocks under the title
 
 const MemoizedTitleEditor = React.memo(TitleEditor);
 const MemoizedPageEditor = React.memo(PageEditor);
@@ -111,6 +112,7 @@ export function FullEditor({
         contributors={contributors}
         readOnly={!editable}
       />
+      <IdqPageBlocks pageId={pageId} spaceId={spaceId} spaceSlug={spaceSlug} /* IDQ: our blocks under the title */ />
       <MemoizedPageEditor
         pageId={pageId}
         editable={editable}
