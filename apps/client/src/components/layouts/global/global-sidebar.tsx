@@ -24,6 +24,7 @@ import { AvatarIconType } from "@/features/attachments/types/attachment.types";
 import { useHasFeature } from "@/ee/hooks/use-feature";
 import { Feature } from "@/ee/features";
 import { useUpgradeLabel } from "@/ee/hooks/use-upgrade-label";
+import { idqGlobalNavItems } from "@/idq/global-nav"; // IDQ: our sidebar entries
 
 export default function GlobalSidebar() {
   const { t } = useTranslation();
@@ -43,6 +44,7 @@ export default function GlobalSidebar() {
       path: "/templates",
       disabled: !hasTemplates,
     },
+    ...idqGlobalNavItems, // IDQ: our sidebar entries
   ];
   const { data: favoriteSpacesData, isPending: isFavoritesPending } = useFavoritesQuery("space");
   const favoriteSpaces = favoriteSpacesData?.pages.flatMap((p) => p.items) ?? [];

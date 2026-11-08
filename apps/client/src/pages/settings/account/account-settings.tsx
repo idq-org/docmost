@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { AccountMfaSection } from "@/features/user/components/account-mfa-section";
 import SessionList from "@/features/session/components/session-list";
 import { DocumentTitle } from "@/components/ui/document-title.tsx";
+import { IdqProfileSections } from "@/idq/profile-sections"; // IDQ: our profile sections
 
 export default function AccountSettings() {
   const { t } = useTranslation();
@@ -20,6 +21,8 @@ export default function AccountSettings() {
       <AccountAvatar />
 
       <AccountNameForm />
+
+      <IdqProfileSections /* IDQ: our profile sections */ />
 
       <Divider my="lg" />
 

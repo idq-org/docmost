@@ -64,6 +64,20 @@ export interface IdqTaskAssignees {
   updatedAt: Generated<Timestamp>;
 }
 
+/** count: only in the counts; named: with name and avatar. */
+export type IdqMemberVisibility = 'count' | 'named';
+
+export interface IdqMemberLocations {
+  userId: string;
+  workspaceId: string;
+  provinceCode: string;
+  visibility: IdqMemberVisibility;
+  /** null: the member chose; otherwise the admin who set it */
+  setById: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface IdqDbInterface extends DbInterface {
   idqApiKeys: IdqApiKeys;
   idqWorkspaceSettings: IdqWorkspaceSettings;
@@ -71,6 +85,7 @@ export interface IdqDbInterface extends DbInterface {
   idqTaskLinks: IdqTaskLinks;
   idqTaskAssignees: IdqTaskAssignees;
   idqTaskSettings: IdqTaskSettings;
+  idqMemberLocations: IdqMemberLocations;
 }
 
 export type IdqKyselyDB = Kysely<IdqDbInterface>;

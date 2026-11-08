@@ -1,6 +1,6 @@
 # Docmost — Informatici di Quartiere fork
 
-Fork of [docmost/docmost](https://github.com/docmost/docmost) that IDQ uses for the association's knowledge base, which agents can also read over MCP (see [MCP.md](MCP.md)), with a task board for each space (see [TASKS.md](TASKS.md)). The project's original README is [`README.md`](../README.md).
+Fork of [docmost/docmost](https://github.com/docmost/docmost) that IDQ uses for the association's knowledge base, which agents can also read over MCP (see [MCP.md](MCP.md)), with a task board for each space (see [TASKS.md](TASKS.md)) and a map of where the members live (see [MEMBER-MAP.md](MEMBER-MAP.md)). The project's original README is [`README.md`](../README.md).
 
 ## Branches
 
@@ -83,6 +83,7 @@ Unit tests:
 ```sh
 pnpm install
 pnpm --filter server exec jest src/idq
+pnpm --filter client exec vitest run src/idq
 ```
 
 End-to-end tests run against a real instance, and each suite needs an empty database (it creates the workspace):
@@ -99,7 +100,7 @@ cd apps/server && NODE_ENV=production PORT=3300 APP_URL=http://localhost:3300 \
   REDIS_URL=redis://127.0.0.1:56379 MAIL_DRIVER=smtp SMTP_HOST=127.0.0.1 \
   node dist/main
 
-# one suite: idq-tasks or idq-mcp
+# one suite: idq-tasks, idq-mcp or idq-member-map
 cd apps/server && IDQ_E2E_URL=http://localhost:3300 \
   IDQ_E2E_DATABASE_URL=postgresql://docmost:docmost@localhost:55432/docmost \
   npx jest --config test/jest-e2e.json --runInBand idq-tasks
@@ -179,4 +180,4 @@ Issues labelled [`idq`](https://github.com/idq-org/docmost/issues?q=is%3Aopen+la
 2. [#5](https://github.com/idq-org/docmost/issues/5): built-in MCP, compatible with clients of the Docmost MCP (API keys first, then `/mcp`, then OAuth)
 3. [#3](https://github.com/idq-org/docmost/issues/3): kanban board for tasks, with linked materials
 4. [#12](https://github.com/idq-org/docmost/issues/12): deadlines and reminders on tasks and pages (can be done in parallel with #3)
-5. [#4](https://github.com/idq-org/docmost/issues/4): members map in pixel art
+5. [#4](https://github.com/idq-org/docmost/issues/4): members map
