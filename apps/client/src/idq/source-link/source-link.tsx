@@ -4,6 +4,8 @@ import { buildLicenseUrl, buildSourceUrl } from "./build-source-url";
 import "./i18n";
 
 const COMMIT = import.meta.env.VITE_IDQ_SOURCE_COMMIT;
+const SOURCE_URL = buildSourceUrl(COMMIT);
+const LICENSE_URL = buildLicenseUrl(COMMIT);
 
 type SourceLinkProps = {
   compact?: boolean;
