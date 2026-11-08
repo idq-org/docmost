@@ -44,7 +44,9 @@ export class IdqMcpWriteLogService {
           userId: entry.userId,
           apiKeyId: entry.apiKeyId,
           tool: entry.tool,
-          arguments: JSON.stringify(summarizeArguments(entry.args ?? {})),
+          // An object: postgres.js serializes jsonb parameters itself, and
+          // a JSON string would be stored as a string.
+          arguments: summarizeArguments(entry.args ?? {}),
           success: entry.success,
           error: entry.error ?? null,
         })

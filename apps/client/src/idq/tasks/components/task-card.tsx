@@ -18,8 +18,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import clsx from "clsx";
-import { CustomAvatar } from "@/components/ui/custom-avatar.tsx";
-import { buildPageUrl } from "@/features/page/page.utils.ts";
+import { buildPageUrl, CustomAvatar } from "@/idq/core/docmost";
 import { IBoardTask, ITaskAssignee, TaskStatus } from "../types";
 import {
   formatDeadline,

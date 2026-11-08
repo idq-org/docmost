@@ -1,11 +1,9 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
+import { Injectable } from '@nestjs/common';
 import { InjectKysely } from 'nestjs-kysely';
 import { RawBuilder, sql } from 'kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { LabelType } from '@docmost/db/repos/label/label.repo';
 import { SpaceMemberRepo } from '@docmost/db/repos/space/space-member.repo';
-import { LabelService } from '../../core/label/label.service';
 import {
   ParsedTaskLabels,
   TASK_FIELDS,
@@ -16,7 +14,8 @@ import {
   fieldOfLabel,
   parseTaskLabels,
 } from './idq-task-fields';
-import { KeyedMutex } from './keyed-mutex';
+import { IdqDocmost } from '../core/idq-docmost.service';
+import { IdqPageLock } from '../core/idq-page-lock.service';
 
 export type StoredTask = ParsedTaskLabels & {
   pageId: string;
@@ -49,21 +48,13 @@ function labelOfFields(
  * (events, search index, cleanup of labels left without pages).
  */
 @Injectable()
-export class IdqTaskLabelStore implements OnModuleInit {
-  private labelService: LabelService;
-  private readonly pageLocks = new KeyedMutex();
-
+export class IdqTaskLabelStore {
   constructor(
     @InjectKysely() private readonly db: KyselyDB,
-    private readonly moduleRef: ModuleRef,
+    private readonly docmost: IdqDocmost,
+    private readonly pageLock: IdqPageLock,
     private readonly spaceMemberRepo: SpaceMemberRepo,
   ) {}
-
-  onModuleInit() {
-    // LabelModule is imported by PageModule, not by us: same approach as
-    // the IDQ MCP for core services.
-    this.labelService = this.moduleRef.get(LabelService, { strict: false });
-  }
 
   /**
    * Tasks of a space: pages that aren't deleted and have a status label.
@@ -180,7 +171,7 @@ export class IdqTaskLabelStore implements OnModuleInit {
     const fields = TASK_FIELDS.filter((field) => changes[field] !== undefined);
     if (fields.length === 0) return;
 
-    await this.pageLocks.run(pageId, async () => {
+    await this.pageLock.run(pageId, async () => {
       const current = await this.db
         .selectFrom('pageLabels')
         .innerJoin('labels', 'labels.id', 'pageLabels.labelId')
@@ -200,7 +191,11 @@ export class IdqTaskLabelStore implements OnModuleInit {
 
       const toAdd = [...wanted].filter((name) => !present.has(name));
       if (toAdd.length > 0) {
-        await this.labelService.addLabelsToPage(pageId, toAdd, workspaceId);
+        await this.docmost.labelService.addLabelsToPage(
+          pageId,
+          toAdd,
+          workspaceId,
+        );
       }
 
       // Removed after adding, so a failure never leaves a task without a
@@ -209,7 +204,7 @@ export class IdqTaskLabelStore implements OnModuleInit {
       for (const label of current) {
         const field = fieldOfLabel(label.name, vocabulary)?.field;
         if (field && fields.includes(field) && !wanted.has(label.name)) {
-          await this.labelService.removeLabelFromPage(
+          await this.docmost.labelService.removeLabelFromPage(
             pageId,
             label.id,
             workspaceId,

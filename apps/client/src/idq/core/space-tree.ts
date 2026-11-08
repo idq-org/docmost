@@ -1,11 +1,23 @@
 import { useCallback } from "react";
 import { useSetAtom } from "jotai";
-import { invalidateOnCreatePage } from "@/features/page/queries/page-query.ts";
-import { treeDataAtom } from "@/features/page/tree/atoms/tree-data-atom";
-import { treeModel } from "@/features/page/tree/model/tree-model";
-import { SpaceTreeNode } from "@/features/page/tree/types";
-import { useQueryEmit } from "@/features/websocket/use-query-emit";
-import { ICreatedTask } from "../types";
+import {
+  SpaceTreeNode,
+  invalidateOnCreatePage,
+  treeDataAtom,
+  treeModel,
+  useQueryEmit,
+} from "./docmost";
+
+/** A page created outside the sidebar, as the space tree needs it. */
+export type NewTreePage = {
+  id: string;
+  slugId: string;
+  title: string | null;
+  icon: string | null;
+  position: string;
+  parentPageId: string | null;
+  spaceId: string;
+};
 
 /**
  * Shows a page created outside the sidebar in the space tree, here and for
@@ -17,7 +29,7 @@ export function useAddPageToTree() {
   const emit = useQueryEmit();
 
   return useCallback(
-    (page: ICreatedTask["page"]) => {
+    (page: NewTreePage) => {
       invalidateOnCreatePage({ ...page, hasChildren: false });
 
       const node: SpaceTreeNode = {

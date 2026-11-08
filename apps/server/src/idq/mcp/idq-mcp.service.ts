@@ -7,7 +7,7 @@ import {
 import { IdqApiKeyPrincipal } from '../api-keys/idq-api-key.service';
 import { IdqMcpCoreService } from './idq-mcp-core.service';
 import { IdqMcpWriteLogService } from './idq-mcp-write-log.service';
-import { IdqAttachmentSearchService } from './idq-attachment-search.service';
+import { IdqAttachmentSearchService } from '../core/idq-attachment-search.service';
 import { registerTools, ToolDefinition } from './tools/tool-context';
 import { pageTools } from './tools/page-tools';
 import { spaceTools } from './tools/space-tools';

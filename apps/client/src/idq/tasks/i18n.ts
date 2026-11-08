@@ -1,9 +1,6 @@
-import i18n from "@/i18n";
+import { addTranslations } from "@/idq/core/i18n";
 
-// Italian translations of the task board. They live here, not in
-// public/locales, so they never conflict with Docmost's translation updates.
-// The keys are the English text, as in the rest of the app. On a key that
-// Docmost translates too, Docmost's translation is used.
+// Italian translations of the task board (see addTranslations).
 const it: Record<string, string> = {
   // Board
   Board: "Bacheca",
@@ -137,10 +134,4 @@ const it: Record<string, string> = {
   "Failed to upload the file": "Caricamento del file non riuscito",
 };
 
-function register() {
-  i18n.addResourceBundle("it-IT", "translation", it, true, false);
-}
-
-register();
-// The http backend loads Docmost's translations later: add ours again.
-i18n.on("loaded", register);
+addTranslations("it-IT", it);

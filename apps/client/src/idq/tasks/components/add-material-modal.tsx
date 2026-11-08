@@ -22,8 +22,7 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import { searchSuggestions } from "@/features/search/services/search-service.ts";
-import { uploadFile } from "@/features/page/services/page-service.ts";
+import { searchSuggestions, uploadFile } from "@/idq/core/docmost";
 import { searchTaskAttachments } from "../services/idq-task-service";
 import { useAddTaskLinkMutation } from "../queries/idq-task-query";
 import { formatFileSize } from "../task-display";

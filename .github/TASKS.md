@@ -48,7 +48,7 @@ Stored in `idq_task_links`: pages (of any space), files (uploaded to the task pa
 
 ## Code
 
-- Server: `apps/server/src/idq/tasks/`. Only `idq-task-fields.ts` and `idq-task-label-store.ts` know the label format, so the fields can move to a table of their own later. Label writes go through Docmost's `LabelService`.
+- Server: `apps/server/src/idq/tasks/`. Only `idq-task-fields.ts` and `idq-task-label-store.ts` know the label format, so the fields can move to a table of their own later. Permissions, label writes (Docmost's `LabelService`) and page creation (Docmost's page controller) go through `apps/server/src/idq/core/`.
 - Tables: `idq_task_settings` (vocabulary), `idq_task_links` (materials), `idq_task_assignees` (people in charge).
-- Client: `apps/client/src/idq/tasks/`. Docmost files only get hook lines: `App.tsx` (route), `space-sidebar.tsx` (sidebar entry), `full-editor.tsx` (panel under the title).
+- Client: `apps/client/src/idq/tasks/`, using Docmost through `apps/client/src/idq/core/`. Docmost files only get hook lines: `App.tsx` (route), `space-sidebar.tsx` (sidebar entry), `full-editor.tsx` (panel under the title).
 - Tests: `apps/server/src/idq/tasks/idq-task-fields.spec.ts`, and `apps/server/test/idq-tasks.e2e-spec.ts`, which runs against an instance with an empty database (see the top of the file).

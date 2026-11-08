@@ -26,7 +26,7 @@ import { AuthUser } from '../../common/decorators/auth-user.decorator';
 import { AuthWorkspace } from '../../common/decorators/auth-workspace.decorator';
 import { User, Workspace } from '@docmost/db/types/entity.types';
 import { IdqTaskLinkType } from '../database/idq-db.types';
-import { IdqAttachmentSearchService } from '../mcp/idq-attachment-search.service';
+import { IdqAttachmentSearchService } from '../core/idq-attachment-search.service';
 import { IdqTaskBoardService } from './idq-task-board.service';
 import { IdqTaskLinksService } from './idq-task-links.service';
 import { IdqTaskAssigneesService } from './idq-task-assignees.service';
@@ -194,7 +194,7 @@ export class IdqTaskAttachmentSearchDto {
 
 /**
  * Task board (issue #3). Every endpoint checks the space and page
- * permissions of the current user (IdqTaskAccess); settings and people in
+ * permissions of the current user (IdqPageAccess); settings and people in
  * charge are for workspace admins.
  */
 @UseGuards(JwtAuthGuard)

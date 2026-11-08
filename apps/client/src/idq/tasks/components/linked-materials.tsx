@@ -10,8 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { buildPageUrl } from "@/features/page/page.utils.ts";
-import { getFileUrl } from "@/lib/config.ts";
+import { buildPageUrl, getFileUrl } from "@/idq/core/docmost";
 import { useRemoveTaskLinkMutation } from "../queries/idq-task-query";
 import { formatFileSize } from "../task-display";
 import { ITaskLink } from "../types";

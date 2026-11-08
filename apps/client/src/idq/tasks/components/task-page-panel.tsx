@@ -5,7 +5,6 @@ import {
   Divider,
   Group,
   Menu,
-  Paper,
   Stack,
   Text,
   Tooltip,
@@ -20,7 +19,7 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { CustomAvatar } from "@/components/ui/custom-avatar.tsx";
+import { CustomAvatar } from "@/idq/core/docmost";
 import {
   usePageTaskQuery,
   useSetTaskStatusMutation,
@@ -37,11 +36,11 @@ import {
   statusName,
   taskBoardUrl,
 } from "../task-display";
+import { PageBlock } from "@/idq/core/page-block";
 import { StatusMenuItems } from "./status-menu-items";
 import { TaskFieldsModal } from "./task-fields-modal";
 import { LinkedMaterials } from "./linked-materials";
 import { UsedInTasks } from "./used-in-tasks";
-import classes from "./task-panel.module.css";
 import "../i18n";
 
 type TaskPagePanelProps = {
@@ -65,13 +64,7 @@ export function TaskPagePanel({
   if (!info || (!info.task && info.usedIn.length === 0)) return null;
 
   return (
-    <Paper
-      withBorder
-      radius="md"
-      p="sm"
-      // print-hide: Docmost's class for what a printed page leaves out.
-      className={`print-hide ${classes.panel}`}
-    >
+    <PageBlock>
       <Stack gap="xs">
         {info.task && (
           <>
@@ -92,7 +85,7 @@ export function TaskPagePanel({
           </>
         )}
       </Stack>
-    </Paper>
+    </PageBlock>
   );
 }
 

@@ -710,6 +710,18 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect(rows.every((r) => r.user_id === memberId)).toBe(true);
     });
 
+    it('stores the arguments as JSON objects', async () => {
+      const rows = await sql`
+        select jsonb_typeof(arguments) as type, arguments
+        from idq_mcp_write_log
+        where api_key_id = ${memberKeyId} and tool = 'create_page'`;
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.type === 'object')).toBe(true);
+      expect(rows.some((r) => typeof r.arguments.space_id === 'string')).toBe(
+        true,
+      );
+    });
+
     it('a revoked key stops working immediately', async () => {
       expect((await mcp(memberKey, 'tools/list')).status).toBe(200);
       const res = await api(member, '/idq/api-keys/revoke', {

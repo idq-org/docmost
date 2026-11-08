@@ -1,4 +1,4 @@
-import api from "@/lib/api-client";
+import { api } from "@/idq/core/docmost";
 
 export interface IIdqApiKey {
   id: string;

@@ -51,6 +51,7 @@ Page content goes in and out as Markdown: headings, lists, tables, code blocks a
   - `api-keys/` manages the keys.
   - `settings/` holds the admin switch.
   - `database/` holds the migrations.
+  - `core/` gives access to Docmost's controllers and permission checks, shared with the other IDQ features.
 - The tools call the core controllers (pages, spaces, comments, search), so they run exactly the same permission checks as the web app. The only tool with a query of our own is `search_attachments`: it filters on the space each page is in now, then applies the core page permissions.
 - The IDQ migrations run at startup, after Docmost's, with their own tracking table (`idq_kysely_migration`). Migrations coming from upstream never end up in the middle of ours.
 - Client: `apps/client/src/idq/mcp/`. The route is in `apps/client/src/idq/routes.tsx` and the menu item in `apps/client/src/idq/settings-nav.ts`. The Italian translations are in `apps/client/src/idq/mcp/i18n.ts`, not in `public/locales`, so they don't conflict with Docmost's updates.

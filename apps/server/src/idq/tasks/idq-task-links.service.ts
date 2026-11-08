@@ -7,7 +7,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { isUUID } from 'class-validator';
 import { Page, User } from '@docmost/db/types/entity.types';
 import { IdqKyselyDB, IdqTaskLinkType } from '../database/idq-db.types';
-import { IdqTaskAccess } from './idq-task-access';
+import { IdqPageAccess } from '../core/idq-page-access.service';
 
 export const MAX_LINKS_PER_TASK = 100;
 
@@ -62,7 +62,7 @@ export type AddTaskLinkInput = {
 export class IdqTaskLinksService {
   constructor(
     @InjectKysely() private readonly db: IdqKyselyDB,
-    private readonly access: IdqTaskAccess,
+    private readonly access: IdqPageAccess,
   ) {}
 
   /** Visible links of a task. The caller has checked access to the task. */
