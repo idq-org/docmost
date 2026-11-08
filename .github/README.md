@@ -74,6 +74,46 @@ git config rerere.enabled true               # reuse conflict resolutions across
 
 The `apps/server/src/ee` submodule points to Docmost's Enterprise edition, which is private: it isn't needed and must not be initialized.
 
+### Tests
+
+The IDQ tests run by hand, not in CI: run them before opening a PR, and after merging an update from Docmost.
+
+Unit tests:
+
+```sh
+pnpm install
+pnpm --filter server exec jest src/idq
+```
+
+End-to-end tests run against a real instance, and each suite needs an empty database (it creates the workspace):
+
+```sh
+docker run -d --name idq-test-db -e POSTGRES_USER=docmost -e POSTGRES_PASSWORD=docmost -e POSTGRES_DB=docmost -p 55432:5432 postgres:18
+docker run -d --name idq-test-redis -p 56379:6379 redis:7
+pnpm build
+
+# in another terminal: the server (it applies Docmost's and our migrations at startup)
+cd apps/server && NODE_ENV=production PORT=3300 APP_URL=http://localhost:3300 \
+  APP_SECRET=a-long-local-secret-of-at-least-32-chars \
+  DATABASE_URL=postgresql://docmost:docmost@localhost:55432/docmost \
+  REDIS_URL=redis://127.0.0.1:56379 MAIL_DRIVER=smtp SMTP_HOST=127.0.0.1 \
+  node dist/main
+
+# one suite: idq-tasks or idq-mcp
+cd apps/server && IDQ_E2E_URL=http://localhost:3300 \
+  IDQ_E2E_DATABASE_URL=postgresql://docmost:docmost@localhost:55432/docmost \
+  npx jest --config test/jest-e2e.json --runInBand idq-tasks
+```
+
+Before the next suite, give it an empty database and restart the server:
+
+```sh
+docker exec idq-test-db psql -U docmost -d postgres -c 'drop database docmost with (force)' -c 'create database docmost'
+docker exec idq-test-redis redis-cli flushall
+```
+
+Without `IDQ_E2E_URL` the end-to-end suites are skipped.
+
 ## Rules for changes
 
 - Everything in the repo is in English: code, comments, Markdown files, commit messages and PRs. UI text is written in English in the code, as in Docmost, and its Italian translation lives in our own translation files.
