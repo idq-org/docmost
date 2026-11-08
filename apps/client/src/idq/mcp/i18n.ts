@@ -1,8 +1,6 @@
-import i18n from "@/i18n";
+import { addTranslations } from "@/idq/core/i18n";
 
-// Italian translations of the IDQ MCP page. They live here, not in
-// public/locales, so they never conflict with Docmost's translation updates.
-// The keys are the English text, as in the rest of the app.
+// Italian translations of the IDQ MCP page (see addTranslations).
 const it: Record<string, string> = {
   "IDQ MCP": "MCP di IDQ",
   "MCP and API keys": "MCP e chiavi API",
@@ -63,10 +61,4 @@ const it: Record<string, string> = {
     "Non è una funzione ufficiale di Docmost: la sviluppa Informatici di Quartiere.",
 };
 
-function register() {
-  i18n.addResourceBundle("it-IT", "translation", it, true, false);
-}
-
-register();
-// The http backend loads Docmost's translations later: add ours again.
-i18n.on("loaded", register);
+addTranslations("it-IT", it);

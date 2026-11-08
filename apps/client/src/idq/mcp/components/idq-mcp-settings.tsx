@@ -17,9 +17,7 @@ import {
 import { modals } from "@mantine/modals";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import CopyTextButton from "@/components/common/copy";
-import { getAppUrl } from "@/lib/config.ts";
-import useUserRole from "@/hooks/use-user-role.tsx";
+import { CopyTextButton, getAppUrl, useUserRole } from "@/idq/core/docmost";
 import {
   useCreateIdqApiKeyMutation,
   useIdqApiKeysQuery,

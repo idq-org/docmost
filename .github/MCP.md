@@ -38,7 +38,7 @@ Page content goes in and out as Markdown: headings, lists, tables, code blocks a
 ## Limits and log
 
 - Rate limit: 120 requests per minute per key and 240 per user. Beyond that, the answer is `429` with `Retry-After`.
-- Every write operation (successful or not) goes into the `idq_mcp_write_log` table, with user, key, tool and arguments. Long texts are shortened.
+- Every write operation (successful or not) goes into the `idq_mcp_write_log` table, with user, key, tool and arguments, stored as a JSON object (long texts are shortened). Read it with SQL, e.g. `select created_at, tool, success, arguments from idq_mcp_write_log order by created_at desc`.
 - The keys table holds only the hash: the clear-text key is never stored.
 - When a member is deactivated or removed, their keys are revoked for good, as Docmost does with sessions: they don't come back if the member is reactivated. The keys stop working at once, and are marked revoked on their next use or within five minutes.
 - Expired keys stay in the list, marked as expired, until they're revoked. They don't count toward the limit of 20 active keys per user.
@@ -51,6 +51,7 @@ Page content goes in and out as Markdown: headings, lists, tables, code blocks a
   - `api-keys/` manages the keys.
   - `settings/` holds the admin switch.
   - `database/` holds the migrations.
+  - `core/` gives access to Docmost's controllers and permission checks, shared with the other IDQ features.
 - The tools call the core controllers (pages, spaces, comments, search), so they run exactly the same permission checks as the web app. The only tool with a query of our own is `search_attachments`: it filters on the space each page is in now, then applies the core page permissions.
 - The IDQ migrations run at startup, after Docmost's, with their own tracking table (`idq_kysely_migration`). Migrations coming from upstream never end up in the middle of ours.
 - Client: `apps/client/src/idq/mcp/`. The route is in `apps/client/src/idq/routes.tsx` and the menu item in `apps/client/src/idq/settings-nav.ts`. The Italian translations are in `apps/client/src/idq/mcp/i18n.ts`, not in `public/locales`, so they don't conflict with Docmost's updates.

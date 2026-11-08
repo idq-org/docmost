@@ -8,7 +8,7 @@ import { lazyWithPrefetch, prefetchLazyComponents } from "@/lib/lazy-prefetch.ts
 import { useTranslation } from "react-i18next";
 import { useRedirectToCloudSelect } from "@/ee/hooks/use-redirect-to-cloud-select.tsx";
 import { useTrackOrigin } from "@/hooks/use-track-origin";
-import { idqSettingsRoutes } from "@/idq/routes"; // IDQ: our routes
+import { idqLayoutRoutes, idqSettingsRoutes } from "@/idq/routes"; // IDQ: our routes
 
 
 const SetupWorkspace = lazyWithPrefetch(() => import("@/pages/auth/setup-workspace.tsx"));
@@ -189,6 +189,7 @@ export default function App() {
           />
 
           <Route path={"/base/:pageId"} element={<BasePage />} />
+          {idqLayoutRoutes /* IDQ: our routes in the app layout */}
 
           <Route path={"/settings"}>
             <Route path={"account/profile"} element={<AccountSettings />} />

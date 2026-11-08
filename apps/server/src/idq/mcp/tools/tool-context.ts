@@ -4,7 +4,7 @@ import type { z } from 'zod';
 import { IdqApiKeyPrincipal } from '../../api-keys/idq-api-key.service';
 import { IdqMcpCoreService, McpInputError } from '../idq-mcp-core.service';
 import { IdqMcpWriteLogService } from '../idq-mcp-write-log.service';
-import { IdqAttachmentSearchService } from '../idq-attachment-search.service';
+import { IdqAttachmentSearchService } from '../../core/idq-attachment-search.service';
 
 export type ToolContext = {
   principal: IdqApiKeyPrincipal;

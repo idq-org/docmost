@@ -1,0 +1,60 @@
+.sectionTitle {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.linkRow {
+  padding: 2px 4px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.linkRow:hover {
+  background: light-dark(
+    var(--mantine-color-gray-0),
+    var(--mantine-color-dark-6)
+  );
+}
+
+.linkTitle {
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.linkTitle:hover {
+  text-decoration: underline;
+}
+
+.linkIcon {
+  display: flex;
+  flex: none;
+  color: var(--mantine-color-dimmed);
+}
+
+.linkDetail {
+  flex: none;
+  max-width: 160px;
+}
+
+.usedInBadge {
+  cursor: pointer;
+  text-transform: none;
+}
+
+.pickerRow {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.pickerRow:hover {
+  background: light-dark(
+    var(--mantine-color-gray-0),
+    var(--mantine-color-dark-6)
+  );
+}
+
+.pickerRow:disabled {
+  opacity: 0.6;
+}

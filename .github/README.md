@@ -1,6 +1,6 @@
 # Docmost — Informatici di Quartiere fork
 
-Fork of [docmost/docmost](https://github.com/docmost/docmost) that IDQ uses for the association's knowledge base, which agents can also read over MCP (see [MCP.md](MCP.md)). The project's original README is [`README.md`](../README.md).
+Fork of [docmost/docmost](https://github.com/docmost/docmost) that IDQ uses for the association's knowledge base, which agents can also read over MCP (see [MCP.md](MCP.md)), with a task board for each space (see [TASKS.md](TASKS.md)) and a map of where the members live (see [MEMBER-MAP.md](MEMBER-MAP.md)). The project's original README is [`README.md`](../README.md).
 
 ## Branches
 
@@ -74,6 +74,47 @@ git config rerere.enabled true               # reuse conflict resolutions across
 
 The `apps/server/src/ee` submodule points to Docmost's Enterprise edition, which is private: it isn't needed and must not be initialized.
 
+### Tests
+
+The IDQ tests run by hand, not in CI: run them before opening a PR, and after merging an update from Docmost.
+
+Unit tests:
+
+```sh
+pnpm install
+pnpm --filter server exec jest src/idq
+pnpm --filter client exec vitest run src/idq
+```
+
+End-to-end tests run against a real instance, and each suite needs an empty database (it creates the workspace):
+
+```sh
+docker run -d --name idq-test-db -e POSTGRES_USER=docmost -e POSTGRES_PASSWORD=docmost -e POSTGRES_DB=docmost -p 55432:5432 postgres:18
+docker run -d --name idq-test-redis -p 56379:6379 redis:7
+pnpm build
+
+# in another terminal: the server (it applies Docmost's and our migrations at startup)
+cd apps/server && NODE_ENV=production PORT=3300 APP_URL=http://localhost:3300 \
+  APP_SECRET=a-long-local-secret-of-at-least-32-chars \
+  DATABASE_URL=postgresql://docmost:docmost@localhost:55432/docmost \
+  REDIS_URL=redis://127.0.0.1:56379 MAIL_DRIVER=smtp SMTP_HOST=127.0.0.1 \
+  node dist/main
+
+# one suite: idq-tasks, idq-mcp or idq-member-map
+cd apps/server && IDQ_E2E_URL=http://localhost:3300 \
+  IDQ_E2E_DATABASE_URL=postgresql://docmost:docmost@localhost:55432/docmost \
+  npx jest --config test/jest-e2e.json --runInBand idq-tasks
+```
+
+Before the next suite, give it an empty database and restart the server:
+
+```sh
+docker exec idq-test-db psql -U docmost -d postgres -c 'drop database docmost with (force)' -c 'create database docmost'
+docker exec idq-test-redis redis-cli flushall
+```
+
+Without `IDQ_E2E_URL` the end-to-end suites are skipped.
+
 ## Rules for changes
 
 - Everything in the repo is in English: code, comments, Markdown files, commit messages and PRs. UI text is written in English in the code, as in Docmost, and its Italian translation lives in our own translation files.
@@ -88,6 +129,9 @@ The `apps/server/src/ee` submodule points to Docmost's Enterprise edition, which
 Git only reports a conflict when Docmost and we change the same lines. New files never conflict, so the goal is to touch as few Docmost files as possible, with as few lines as possible.
 
 - **Our code lives in our own folders.** Server: `apps/server/src/idq/`, one subfolder per feature, all registered in `IdqModule`. Client: `apps/client/src/idq/`, one subfolder per feature. Tests: `apps/server/test/idq-*`. Fork docs and workflows: `.github/`.
+- **We reach Docmost through `idq/core`.** Features don't depend on Docmost's internals directly, so an upstream change is fixed in one place:
+  - server: `apps/server/src/idq/core/` resolves the Docmost controllers and services that Docmost's modules don't export (`IdqDocmost`) and holds the shared page permission checks (`IdqPageAccess`). Framework pieces (guards, decorators, entity types, exported repositories) are imported directly;
+  - client: `apps/client/src/idq/core/docmost.ts` is the only file that imports from Docmost's client; features import from it, and from the helpers next to it (space sidebar entry, sidebar tree, page labels, box under the page title, translations).
 - **One hook line per extension point.** When a Docmost file has to know about our code, it gets one import and one line, marked with an `IDQ:` comment, and the actual list of modules, routes or menu items lives in our files. For example `app.module.ts` imports only `IdqModule`, and each server feature registers inside it. Likewise the client router and the settings menu each get a single line that spreads our own list of routes or items, so a new feature only adds to our files.
 - **Leave the code around a hook as it is.** No reformatting, reordering or drive-by fixes in Docmost files: every changed line is a possible conflict.
 - **Database: only our own tables.** Tables are prefixed `idq_`. Migrations live in `apps/server/src/idq/database/migrations` with their own tracking table, so they never interleave with Docmost's. Never add columns to Docmost tables: extra data goes in an `idq_` table that references the Docmost row (for example by `user_id` or `page_id`).
@@ -136,4 +180,4 @@ Issues labelled [`idq`](https://github.com/idq-org/docmost/issues?q=is%3Aopen+la
 2. [#5](https://github.com/idq-org/docmost/issues/5): built-in MCP, compatible with clients of the Docmost MCP (API keys first, then `/mcp`, then OAuth)
 3. [#3](https://github.com/idq-org/docmost/issues/3): kanban board for tasks, with linked materials
 4. [#12](https://github.com/idq-org/docmost/issues/12): deadlines and reminders on tasks and pages (can be done in parallel with #3)
-5. [#4](https://github.com/idq-org/docmost/issues/4): members map in pixel art
+5. [#4](https://github.com/idq-org/docmost/issues/4): members map

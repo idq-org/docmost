@@ -34,10 +34,58 @@ export interface IdqMcpWriteLog {
   createdAt: Generated<Timestamp>;
 }
 
+export type IdqTaskLinkType = 'page' | 'attachment' | 'url';
+
+export interface IdqTaskSettings {
+  workspaceId: string;
+  vocabulary: unknown;
+  updatedById: string | null;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface IdqTaskLinks {
+  id: Generated<string>;
+  workspaceId: string;
+  taskPageId: string;
+  type: IdqTaskLinkType;
+  targetPageId: string | null;
+  attachmentId: string | null;
+  url: string | null;
+  title: string | null;
+  createdById: string | null;
+  createdAt: Generated<Timestamp>;
+}
+
+export interface IdqTaskAssignees {
+  workspaceId: string;
+  value: string;
+  userId: string;
+  updatedById: string | null;
+  updatedAt: Generated<Timestamp>;
+}
+
+/** count: only in the counts; named: with name and avatar. */
+export type IdqMemberVisibility = 'count' | 'named';
+
+export interface IdqMemberLocations {
+  userId: string;
+  workspaceId: string;
+  provinceCode: string;
+  visibility: IdqMemberVisibility;
+  /** null: the member chose; otherwise the admin who set it */
+  setById: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface IdqDbInterface extends DbInterface {
   idqApiKeys: IdqApiKeys;
   idqWorkspaceSettings: IdqWorkspaceSettings;
   idqMcpWriteLog: IdqMcpWriteLog;
+  idqTaskLinks: IdqTaskLinks;
+  idqTaskAssignees: IdqTaskAssignees;
+  idqTaskSettings: IdqTaskSettings;
+  idqMemberLocations: IdqMemberLocations;
 }
 
 export type IdqKyselyDB = Kysely<IdqDbInterface>;
