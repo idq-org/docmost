@@ -22,6 +22,7 @@ import DocsThemeToggle from "@/features/public-space/components/docs/docs-theme-
 import DocsFooterBranding from "@/features/public-space/components/docs/docs-footer-branding.tsx";
 import { MAIN_CONTENT_ID, SkipToMain } from "@/components/ui/skip-to-main.tsx";
 import { SearchMobileControl } from "@/features/search/components/search-control.tsx";
+import { SourceLink } from "@/idq/source-link/source-link"; // IDQ: source code link (AGPL-3.0)
 import styles from "./docs.module.css";
 
 const MemoizedDocsSidebarTree = React.memo(DocsSidebarTree);
@@ -184,6 +185,8 @@ export default function DocsShell({
               {showBranding && (
                 <DocsFooterBranding refSource={surface.brandingRef} />
               )}
+              {/* IDQ: source code link (AGPL-3.0) */}
+              <SourceLink />
             </div>
           </main>
 
