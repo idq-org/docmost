@@ -17,7 +17,7 @@ export function SourceLink({ compact = false }: SourceLinkProps) {
   return (
     <Text size="xs" c="dimmed" ta="center" px="md" py="xs">
       <Anchor
-        href={buildSourceUrl(COMMIT)}
+        href={SOURCE_URL}
         target="_blank"
         rel="noopener noreferrer"
         inherit
@@ -27,7 +27,7 @@ export function SourceLink({ compact = false }: SourceLinkProps) {
       {" · "}
       {compact ? (
         <Anchor
-          href={buildLicenseUrl(COMMIT)}
+          href={LICENSE_URL}
           target="_blank"
           rel="noopener noreferrer"
           inherit
@@ -40,7 +40,7 @@ export function SourceLink({ compact = false }: SourceLinkProps) {
           components={{
             license: (
               <Anchor
-                href={buildLicenseUrl(COMMIT)}
+                href={LICENSE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 inherit
