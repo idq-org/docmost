@@ -15,6 +15,7 @@ import {
   setTaskStatus,
   updateTaskSettings,
 } from "../services/idq-task-service";
+import { invalidatePageLabels } from "@/idq/core/page-labels";
 import { IPageTaskInfo, ITaskBoard, TaskStatus } from "../types";
 
 export const taskKeys = {
@@ -27,13 +28,6 @@ export const taskKeys = {
   fieldOptions: () => [...taskKeys.all, "field-options"] as const,
   mappings: () => [...taskKeys.all, "assignee-mappings"] as const,
 };
-
-/**
- * Key of Docmost's cache of a page's labels (usePageLabelsQuery). Task
- * fields are labels, so a change made here refreshes the labels section of
- * the page, and a change made there refreshes the task panel.
- */
-export const pageLabelsKey = (pageId: string) => ["page-labels", pageId];
 
 function errorMessage(err: unknown, fallback: string): string {
   const message = (err as { response?: { data?: { message?: unknown } } })
@@ -100,7 +94,8 @@ function useInvalidateTask() {
   return (pageId: string) => {
     queryClient.invalidateQueries({ queryKey: taskKeys.page(pageId) });
     queryClient.invalidateQueries({ queryKey: taskKeys.boards() });
-    queryClient.invalidateQueries({ queryKey: pageLabelsKey(pageId) });
+    // Task fields are labels: refresh the labels section of the page too.
+    invalidatePageLabels(queryClient, pageId);
   };
 }
 

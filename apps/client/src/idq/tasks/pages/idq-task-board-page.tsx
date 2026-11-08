@@ -18,18 +18,20 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import { useGetSpaceBySlugQuery } from "@/features/space/queries/space-query.ts";
-import { userAtom } from "@/features/user/atoms/current-user-atom.ts";
-import useUserRole from "@/hooks/use-user-role.tsx";
-import { DocumentTitle } from "@/components/ui/document-title.tsx";
-import { EmptyState } from "@/components/ui/empty-state.tsx";
+import {
+  DocumentTitle,
+  EmptyState,
+  useGetSpaceBySlugQuery,
+  userAtom,
+  useUserRole,
+} from "@/idq/core/docmost";
 import {
   useCreateTaskMutation,
   useSetTaskStatusMutation,
   useTaskBoardQuery,
 } from "../queries/idq-task-query";
 import { useTaskSettings } from "../hooks/use-task-settings";
-import { useAddPageToTree } from "../hooks/use-add-page-to-tree";
+import { useAddPageToTree } from "@/idq/core/space-tree";
 import { IBoardTask, ITaskBoard, TaskStatus } from "../types";
 import {
   compareTasks,

@@ -1,8 +1,4 @@
-/**
- * Runs tasks with the same key one after the other, in this process. The
- * server runs as a single instance, so this is enough to serialize the label
- * changes of one page.
- */
+/** Runs tasks with the same key one after the other, in this process. */
 export class KeyedMutex {
   private readonly tails = new Map<string, Promise<unknown>>();
 

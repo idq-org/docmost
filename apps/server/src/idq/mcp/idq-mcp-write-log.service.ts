@@ -20,7 +20,12 @@ export function summarizeArguments(args: unknown): unknown {
   return args;
 }
 
-/** Log of the write operations done through MCP. */
+/**
+ * Log of the write operations done through MCP (table idq_mcp_write_log).
+ * Arguments are stored as a JSON object with the tools' own keys (page_id,
+ * space_id…): read them with SQL, since Kysely's camelCase plugin would
+ * rename those keys.
+ */
 @Injectable()
 export class IdqMcpWriteLogService {
   private readonly logger = new Logger('IdqMcpWriteLog');
@@ -44,7 +49,9 @@ export class IdqMcpWriteLogService {
           userId: entry.userId,
           apiKeyId: entry.apiKeyId,
           tool: entry.tool,
-          arguments: JSON.stringify(summarizeArguments(entry.args ?? {})),
+          // An object: postgres.js serializes jsonb parameters itself, and
+          // a JSON string would be stored as a string.
+          arguments: summarizeArguments(entry.args ?? {}),
           success: entry.success,
           error: entry.error ?? null,
         })

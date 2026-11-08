@@ -4,18 +4,16 @@ import {
   Inject,
   Injectable,
   Logger,
-  OnModuleInit,
   Optional,
 } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { PagePermissionRepo } from '@docmost/db/repos/page/page-permission.repo';
 import { Page, User, Workspace } from '@docmost/db/types/entity.types';
-import { PageController } from '../../core/page/page.controller';
 import { CreatePageDto } from '../../core/page/dto/create-page.dto';
-import { IdqTaskAccess } from './idq-task-access';
+import { IdqDocmost } from '../core/idq-docmost.service';
+import { IdqPageAccess } from '../core/idq-page-access.service';
 import { IdqTaskLabelStore, StoredTask } from './idq-task-label-store';
 import {
   AddTaskLinkInput,
@@ -148,16 +146,15 @@ function toStoredTask(
  * adds people in charge, deadlines and linked materials.
  */
 @Injectable()
-export class IdqTaskBoardService implements OnModuleInit {
+export class IdqTaskBoardService {
   private readonly logger = new Logger('IdqTaskBoardService');
-  private pageController: PageController;
 
   constructor(
     @InjectKysely() private readonly db: KyselyDB,
-    private readonly moduleRef: ModuleRef,
+    private readonly docmost: IdqDocmost,
     private readonly eventEmitter: EventEmitter2,
     private readonly pagePermissionRepo: PagePermissionRepo,
-    private readonly access: IdqTaskAccess,
+    private readonly access: IdqPageAccess,
     private readonly labelStore: IdqTaskLabelStore,
     private readonly links: IdqTaskLinksService,
     private readonly assignees: IdqTaskAssigneesService,
@@ -166,13 +163,6 @@ export class IdqTaskBoardService implements OnModuleInit {
     @Inject(IDQ_TASK_DEADLINE_SOURCE)
     private readonly deadlineSource?: IdqTaskDeadlineSource,
   ) {}
-
-  onModuleInit() {
-    // PageModule doesn't export it: same approach as the IDQ MCP.
-    this.pageController = this.moduleRef.get(PageController, {
-      strict: false,
-    });
-  }
 
   async getBoard(
     spaceId: string,
@@ -335,7 +325,7 @@ export class IdqTaskBoardService implements OnModuleInit {
     const create = (parent: string | null) =>
       // Through Docmost's controller: same permission checks and audit log
       // as a page created from the sidebar.
-      this.pageController.create(
+      this.docmost.pageController.create(
         Object.assign(new CreatePageDto(), {
           spaceId: input.spaceId,
           title: input.title,

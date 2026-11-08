@@ -1,7 +1,7 @@
 import { Badge, Group, Text } from "@mantine/core";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { buildPageUrl } from "@/features/page/page.utils.ts";
+import { buildPageUrl } from "@/idq/core/docmost";
 import { statusColor } from "../task-display";
 import { ITaskUsage } from "../types";
 import classes from "./task-panel.module.css";

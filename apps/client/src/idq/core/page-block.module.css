@@ -1,0 +1,9 @@
+/* Same side margins as the page text (.ProseMirror in Docmost's core.css). */
+.block {
+  margin: 0 3rem var(--mantine-spacing-md);
+
+  @media (max-width: $mantine-breakpoint-sm) {
+    margin-left: 1rem;
+    margin-right: 1rem;
+  }
+}

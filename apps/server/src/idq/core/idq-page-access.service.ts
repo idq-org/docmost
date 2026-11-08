@@ -2,9 +2,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  OnModuleInit,
 } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { SpaceMemberRepo } from '@docmost/db/repos/space/space-member.repo';
@@ -16,29 +14,23 @@ import {
   SpaceCaslAction,
   SpaceCaslSubject,
 } from '../../core/casl/interfaces/space-ability.type';
-import { PageAccessService } from '../../core/page/page-access/page-access.service';
+import { IdqDocmost } from './idq-docmost.service';
 
 /**
- * Permission checks of the task board, built on Docmost's own rules: space
- * membership and role (casl), then page-level restrictions.
+ * Who can see and change which pages, for IDQ features, built on Docmost's
+ * own rules: space membership and role (casl), then page-level
+ * restrictions.
  */
 @Injectable()
-export class IdqTaskAccess implements OnModuleInit {
-  private pageAccess: PageAccessService;
-
+export class IdqPageAccess {
   constructor(
     @InjectKysely() private readonly db: KyselyDB,
-    private readonly moduleRef: ModuleRef,
+    private readonly docmost: IdqDocmost,
     private readonly spaceAbility: SpaceAbilityFactory,
     private readonly spaceMemberRepo: SpaceMemberRepo,
     private readonly pagePermissionRepo: PagePermissionRepo,
     private readonly pageRepo: PageRepo,
   ) {}
-
-  onModuleInit() {
-    // PageModule doesn't export it: same approach as the IDQ MCP.
-    this.pageAccess = this.moduleRef.get(PageAccessService, { strict: false });
-  }
 
   /**
    * A page of the workspace that the user can see, or NotFoundException.
@@ -54,10 +46,11 @@ export class IdqTaskAccess implements OnModuleInit {
       throw new NotFoundException('Page not found');
     }
     try {
-      const { canEdit } = await this.pageAccess.validateCanViewWithPermissions(
-        page,
-        user,
-      );
+      const { canEdit } =
+        await this.docmost.pageAccess.validateCanViewWithPermissions(
+          page,
+          user,
+        );
       return { page, canEdit };
     } catch (err) {
       // Same answer as a missing page: don't reveal that it exists.

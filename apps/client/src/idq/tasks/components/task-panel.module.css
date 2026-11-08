@@ -1,13 +1,3 @@
-/* Same side margins as the page text (.ProseMirror in core.css). */
-.panel {
-  margin: 0 3rem var(--mantine-spacing-md);
-
-  @media (max-width: $mantine-breakpoint-sm) {
-    margin-left: 1rem;
-    margin-right: 1rem;
-  }
-}
-
 .sectionTitle {
   text-transform: uppercase;
   letter-spacing: 0.03em;

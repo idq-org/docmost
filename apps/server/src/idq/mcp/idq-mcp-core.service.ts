@@ -1,20 +1,12 @@
-import { Injectable, OnModuleInit, Type } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
+import { Injectable, Type } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import slugify from '@sindresorhus/slugify';
-import { PageController } from '../../core/page/page.controller';
-import { SpaceController } from '../../core/space/space.controller';
-import { CommentController } from '../../core/comment/comment.controller';
-import { SearchController } from '../../core/search/search.controller';
-import { WorkspaceController } from '../../core/workspace/controllers/workspace.controller';
-import { UserController } from '../../core/user/user.controller';
-import { PageService } from '../../core/page/services/page.service';
 import { EnvironmentService } from '../../integrations/environment/environment.service';
 import { PageRepo } from '@docmost/db/repos/page/page.repo';
-import { PageAccessService } from '../../core/page/page-access/page-access.service';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
+import { IdqDocmost } from '../core/idq-docmost.service';
 
 export class McpInputError extends Error {}
 
@@ -43,39 +35,43 @@ export async function toDto<T extends object>(
 }
 
 /**
- * Access to the core controllers. The MCP tools go through them instead of
- * calling repositories and services directly, so every call runs the same
- * permission checks (space and page) as the web app.
+ * Access to the core controllers, through IdqDocmost. The MCP tools go
+ * through them instead of calling repositories and services directly, so
+ * every call runs the same permission checks (space and page) as the web
+ * app.
  */
 @Injectable()
-export class IdqMcpCoreService implements OnModuleInit {
-  pages: PageController;
-  spaces: SpaceController;
-  comments: CommentController;
-  search: SearchController;
-  workspace: WorkspaceController;
-  users: UserController;
-
-  pageAccess: PageAccessService;
-  pageService: PageService;
-
+export class IdqMcpCoreService {
   constructor(
-    private readonly moduleRef: ModuleRef,
+    private readonly docmost: IdqDocmost,
     private readonly environmentService: EnvironmentService,
     readonly pageRepo: PageRepo,
     @InjectKysely() private readonly db: KyselyDB,
   ) {}
 
-  onModuleInit() {
-    const get = <T>(cls: Type<T>) => this.moduleRef.get(cls, { strict: false });
-    this.pages = get(PageController);
-    this.spaces = get(SpaceController);
-    this.comments = get(CommentController);
-    this.search = get(SearchController);
-    this.workspace = get(WorkspaceController);
-    this.users = get(UserController);
-    this.pageAccess = get(PageAccessService);
-    this.pageService = get(PageService);
+  get pages() {
+    return this.docmost.pageController;
+  }
+  get spaces() {
+    return this.docmost.spaceController;
+  }
+  get comments() {
+    return this.docmost.commentController;
+  }
+  get search() {
+    return this.docmost.searchController;
+  }
+  get workspace() {
+    return this.docmost.workspaceController;
+  }
+  get users() {
+    return this.docmost.userController;
+  }
+  get pageAccess() {
+    return this.docmost.pageAccess;
+  }
+  get pageService() {
+    return this.docmost.pageService;
   }
 
   /**
