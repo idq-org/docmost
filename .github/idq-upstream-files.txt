@@ -17,3 +17,4 @@ apps/client/src/features/space/components/sidebar/space-sidebar.tsx  # renders I
 apps/client/src/features/editor/full-editor.tsx  # renders IdqPageBlocks under the page title (apps/client/src/idq/page-blocks.tsx)
 apps/client/src/components/layouts/global/global-sidebar.tsx  # spreads idqGlobalNavItems (apps/client/src/idq/global-nav.ts)
 apps/client/src/pages/settings/account/account-settings.tsx  # renders IdqProfileSections (apps/client/src/idq/profile-sections.tsx)
+apps/client/src/features/public-space/components/docs/docs-shell.tsx  # renders SourceLink on shares and public spaces
