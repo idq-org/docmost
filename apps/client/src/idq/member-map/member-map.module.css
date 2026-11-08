@@ -1,0 +1,172 @@
+/* Members map (issue #4): a dot map in Docmost's colours, for the light
+   and the dark theme. */
+
+.layout {
+  display: grid;
+  gap: var(--mantine-spacing-xl);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+
+  @media (min-width: $mantine-breakpoint-md) {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  }
+}
+
+.mapColumn {
+  @media (min-width: $mantine-breakpoint-md) {
+    position: sticky;
+    top: calc(var(--app-shell-header-height, 45px) + var(--mantine-spacing-md));
+  }
+}
+
+/* --- Map ---------------------------------------------------------------- */
+
+.mapFrame {
+  position: relative;
+  width: 100%;
+  /* The whole of Italy fits on the screen */
+  max-width: min(600px, calc((100dvh - 200px) * 77 / 90));
+  min-width: min(100%, 280px);
+  margin-inline: auto;
+}
+
+.mapSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  user-select: none;
+}
+
+/* Dots, by number of members (memberLevel). More members, more contrast
+   with the background: darker in the light theme, brighter in the dark. */
+.dots {
+  fill: light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  transition: fill 150ms ease;
+
+  &[data-level="1"] {
+    fill: light-dark(
+      var(--mantine-primary-color-3),
+      var(--mantine-primary-color-8)
+    );
+  }
+
+  &[data-level="2"] {
+    fill: light-dark(
+      var(--mantine-primary-color-5),
+      var(--mantine-primary-color-6)
+    );
+  }
+
+  &[data-level="3"] {
+    fill: light-dark(
+      var(--mantine-primary-color-8),
+      var(--mantine-primary-color-3)
+    );
+  }
+}
+
+/* The highlighted province: bigger dots, over the others. */
+.activeDots {
+  pointer-events: none;
+  fill: light-dark(var(--mantine-color-gray-6), var(--mantine-color-dark-1));
+
+  &:not([data-level="0"]) {
+    fill: light-dark(
+      var(--mantine-primary-color-9),
+      var(--mantine-primary-color-1)
+    );
+  }
+}
+
+.area {
+  fill: transparent;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots,
+  .marker {
+    transition: none;
+  }
+}
+
+/* --- Markers ------------------------------------------------------------- */
+
+.marker {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--mantine-primary-color-contrast);
+  background: var(--mantine-primary-color-filled);
+  /* A ring in the page colour keeps the marker apart from the dots */
+  box-shadow:
+    0 0 0 2px var(--mantine-color-body),
+    var(--mantine-shadow-xs);
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: transform 120ms ease;
+
+  &:hover,
+  &[data-active] {
+    z-index: 2;
+    background: var(--mantine-primary-color-filled-hover);
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mantine-primary-color-filled);
+    outline-offset: 3px;
+  }
+}
+
+/* --- Below the map --------------------------------------------------------- */
+
+.status {
+  min-height: 1.6em;
+  text-align: center;
+}
+
+.legendDot {
+  display: block;
+  flex: none;
+}
+
+/* --- List ------------------------------------------------------------------- */
+
+.regionTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+  padding-bottom: 6px;
+  border-bottom: 1px solid
+    light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+}
+
+.provinceRow {
+  padding: 8px var(--mantine-spacing-xs);
+  border-bottom: 1px solid
+    light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+  border-radius: var(--mantine-radius-sm);
+  transition: background-color 120ms ease;
+
+  &[data-highlighted] {
+    background: light-dark(
+      var(--mantine-primary-color-0),
+      var(--mantine-color-dark-6)
+    );
+  }
+}

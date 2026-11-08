@@ -9,12 +9,21 @@ const IdqMcpSettingsPage = lazyWithPrefetch(
 const IdqTaskBoardPage = lazyWithPrefetch(
   () => import("@/idq/tasks/pages/idq-task-board-page.tsx"),
 );
+const IdqMemberMapPage = lazyWithPrefetch(
+  () => import("@/idq/member-map/pages/idq-member-map-page.tsx"),
+);
+const IdqMemberMapAdminPage = lazyWithPrefetch(
+  () => import("@/idq/member-map/pages/idq-member-map-admin-page.tsx"),
+);
 
 /** Routes inside the app layout (sidebar and header). */
 export const idqLayoutRoutes = (
   <>
     {/* Task board of a space (issue #3) */}
     <Route path={"/s/:spaceSlug/board"} element={<IdqTaskBoardPage />} />
+    {/* Members map (issue #4) */}
+    <Route path={"/map"} element={<IdqMemberMapPage />} />
+    <Route path={"/map/manage"} element={<IdqMemberMapAdminPage />} />
   </>
 );
 

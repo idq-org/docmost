@@ -19,6 +19,8 @@ import { IdqTaskLinksService } from './tasks/idq-task-links.service';
 import { IdqTaskLabelStore } from './tasks/idq-task-label-store';
 import { IdqTaskAssigneesService } from './tasks/idq-task-assignees.service';
 import { IdqTaskSettingsService } from './tasks/idq-task-settings.service';
+import { IdqMemberMapController } from './member-map/idq-member-map.controller';
+import { IdqMemberMapService } from './member-map/idq-member-map.service';
 
 /**
  * Informatici di Quartiere features (AGPL fork of Docmost), written from
@@ -34,6 +36,7 @@ import { IdqTaskSettingsService } from './tasks/idq-task-settings.service';
     IdqSettingsController,
     IdqMcpController,
     IdqTasksController,
+    IdqMemberMapController,
   ],
   providers: [
     IdqMigrationService,
@@ -56,6 +59,8 @@ import { IdqTaskSettingsService } from './tasks/idq-task-settings.service';
     IdqTaskLabelStore,
     IdqTaskAssigneesService,
     IdqTaskSettingsService,
+    // Members map (issue #4)
+    IdqMemberMapService,
   ],
 })
 export class IdqModule {}
