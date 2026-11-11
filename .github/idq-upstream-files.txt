@@ -10,7 +10,11 @@
 apps/server/src/app.module.ts  # imports IdqModule, which registers every IDQ server feature
 apps/client/src/App.tsx  # spreads idqLayoutRoutes and idqSettingsRoutes (apps/client/src/idq/routes.tsx)
 apps/client/src/components/settings/settings-sidebar.tsx  # spreads idqAccountSettingsItems (apps/client/src/idq/settings-nav.ts)
+Dockerfile  # build arg VITE_IDQ_SOURCE_COMMIT for the source code link
+apps/client/src/features/auth/components/auth-layout.tsx  # renders SourceLink on the auth pages
+apps/client/src/components/layouts/global/global-app-shell.tsx  # sidebar footer with SourceLink (sidebars wrapped in AppShell.Section)
 apps/client/src/features/space/components/sidebar/space-sidebar.tsx  # renders IdqSpaceSidebarItems (apps/client/src/idq/space-sidebar-items.tsx)
 apps/client/src/features/editor/full-editor.tsx  # renders IdqPageBlocks under the page title (apps/client/src/idq/page-blocks.tsx)
 apps/client/src/components/layouts/global/global-sidebar.tsx  # spreads idqGlobalNavItems (apps/client/src/idq/global-nav.ts)
 apps/client/src/pages/settings/account/account-settings.tsx  # renders IdqProfileSections (apps/client/src/idq/profile-sections.tsx)
+apps/client/src/features/public-space/components/docs/docs-shell.tsx  # renders SourceLink on shares and public spaces

@@ -9,6 +9,9 @@ WORKDIR /app
 COPY . .
 
 RUN pnpm install --frozen-lockfile
+
+# IDQ: commit shown by the source code link (AGPL-3.0 section 13)
+ARG VITE_IDQ_SOURCE_COMMIT=""
 RUN NX_DAEMON=false pnpm build
 
 FROM base AS installer
