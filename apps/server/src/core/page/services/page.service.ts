@@ -75,6 +75,8 @@ import { COVER_IMAGE_MIME_TYPES } from '../page-cover.constants';
 import { CoverFields } from '../page-cover.types';
 import { UnsplashService } from '../../../integrations/unsplash/unsplash.service';
 import { AttachmentType } from '../../attachment/attachment.constants';
+import { PageVerificationInvalidationService } from '../verification/page-verification-invalidation.service';
+import { isSameTitle } from '../verification/page-verification-invalidation.utils';
 
 @Injectable()
 export class PageService {
@@ -98,6 +100,7 @@ export class PageService {
     private readonly collabAccessService: CollabAccessService,
     private readonly shareService: ShareService,
     private readonly unsplashService: UnsplashService,
+    private readonly pageVerificationInvalidationService: PageVerificationInvalidationService,
   ) {}
 
   async findById(
@@ -252,6 +255,9 @@ export class PageService {
     const contributors = new Set<string>(page.contributorIds);
     contributors.add(user.id);
     const contributorIds = Array.from(contributors);
+    const titleChanged =
+      updatePageDto.title !== undefined &&
+      !isSameTitle(page.title, updatePageDto.title);
 
     const coverFields = await this.resolveCoverFields(
       page,
@@ -259,17 +265,47 @@ export class PageService {
       user,
     );
 
-    await this.pageRepo.updatePage(
-      {
-        title: updatePageDto.title,
-        icon: updatePageDto.icon,
-        ...coverFields,
-        lastUpdatedById: user.id,
-        updatedAt: new Date(),
-        contributorIds: contributorIds,
-      },
-      page.id,
-    );
+    const invalidation = await executeTx(this.db, async (trx) => {
+      await this.pageRepo.updatePage(
+        {
+          title: updatePageDto.title,
+          icon: updatePageDto.icon,
+          ...coverFields,
+          lastUpdatedById: user.id,
+          updatedAt: new Date(),
+          contributorIds: contributorIds,
+        },
+        page.id,
+        trx,
+      );
+
+      if (!titleChanged) return null;
+
+      return this.pageVerificationInvalidationService.invalidateForEdit(
+        {
+          pageId: page.id,
+          userId: user.id,
+          changedAt: null,
+          isMeaningfulChange: () => true,
+          loadPreviousState: async () => {
+            const current = await this.pageRepo.findById(page.id, {
+              includeContent: true,
+              trx,
+            });
+            return { ...page, content: current.content };
+          },
+        },
+        trx,
+      );
+    });
+
+    if (invalidation) {
+      await this.pageVerificationInvalidationService.notifyInvalidated(
+        invalidation,
+        user.id,
+        'title',
+      );
+    }
 
     this.scheduleCoverCleanup(page, coverFields);
 
@@ -571,6 +607,39 @@ export class PageService {
         );
       }
 
+      const pageIdsToMove = accessiblePages.map((p) => p.id);
+
+      // trashed pages below the moved ones go along, keeping their parents and restrictions
+      const trashedPages =
+        pageIdsToMove.length > 0
+          ? await trx
+              .withRecursive('trashed_pages', (db) =>
+                db
+                  .selectFrom('pages')
+                  .select(['id'])
+                  .where('spaceId', '=', currentRootPage.spaceId)
+                  .where('deletedAt', 'is not', null)
+                  .where('parentPageId', 'in', pageIdsToMove)
+                  .unionAll((exp) =>
+                    exp
+                      .selectFrom('pages as p')
+                      .select(['p.id'])
+                      .innerJoin(
+                        'trashed_pages as tp',
+                        'tp.id',
+                        'p.parentPageId',
+                      )
+                      .where('p.spaceId', '=', currentRootPage.spaceId)
+                      .where('p.deletedAt', 'is not', null),
+                  ),
+              )
+              .selectFrom('trashed_pages')
+              .select('id')
+              .execute()
+          : [];
+      const trashedPageIds = trashedPages.map((p) => p.id);
+      const allPageIdsToMove = [...pageIdsToMove, ...trashedPageIds];
+
       // Update root page
       const nextPosition = await this.nextPagePosition(spaceId, null, trx);
       await this.pageRepo.updatePage(
@@ -578,8 +647,6 @@ export class PageService {
         currentRootPage.id,
         trx,
       );
-
-      const pageIdsToMove = accessiblePages.map((p) => p.id);
 
       const childPageIds = pageIdsToMove.filter(
         (id) => id !== currentRootPage.id,
@@ -591,11 +658,19 @@ export class PageService {
         await this.pageRepo.updatePages({ spaceId }, childPageIds, trx);
       }
 
+      if (trashedPageIds.length > 0) {
+        await trx
+          .updateTable('pages')
+          .set({ spaceId })
+          .where('id', 'in', trashedPageIds)
+          .execute();
+      }
+
       if (pageIdsToMove.length > 0) {
         await trx
           .updateTable('pageAccess')
           .set({ spaceId: spaceId })
-          .where('pageId', 'in', pageIdsToMove)
+          .where('pageId', 'in', allPageIdsToMove)
           .execute();
 
         // shares only follow pages into spaces that allow public sharing
@@ -603,12 +678,12 @@ export class PageService {
           await trx
             .updateTable('shares')
             .set({ spaceId: spaceId })
-            .where('pageId', 'in', pageIdsToMove)
+            .where('pageId', 'in', allPageIdsToMove)
             .execute();
         } else {
           deletedShares = await trx
             .deleteFrom('shares')
-            .where('pageId', 'in', pageIdsToMove)
+            .where('pageId', 'in', allPageIdsToMove)
             .returning(['id', 'pageId', 'spaceId'])
             .execute();
         }
@@ -616,46 +691,54 @@ export class PageService {
         await trx
           .updateTable('spaces')
           .set({ homePageId: null })
-          .where('homePageId', 'in', pageIdsToMove)
+          .where('homePageId', 'in', allPageIdsToMove)
           .execute();
 
         // Update comments
         await trx
           .updateTable('comments')
           .set({ spaceId: spaceId })
-          .where('pageId', 'in', pageIdsToMove)
+          .where('pageId', 'in', allPageIdsToMove)
           .execute();
 
         // Update page verifications
         await trx
           .updateTable('pageVerifications')
           .set({ spaceId: spaceId })
-          .where('pageId', 'in', pageIdsToMove)
+          .where('pageId', 'in', allPageIdsToMove)
+          .execute();
+
+        // Update page history
+        await trx
+          .updateTable('pageHistory')
+          .set({ spaceId: spaceId })
+          .where('pageId', 'in', allPageIdsToMove)
           .execute();
 
         // Update notifications — access follows the page after a move
         await trx
           .updateTable('notifications')
           .set({ spaceId: spaceId })
-          .where('pageId', 'in', pageIdsToMove)
+          .where('pageId', 'in', allPageIdsToMove)
           .execute();
 
         // Update attachments
         await this.attachmentRepo.updateAttachmentsByPageId(
           { spaceId },
-          pageIdsToMove,
+          allPageIdsToMove,
           trx,
         );
 
         // Update watchers and remove those without access to new space
         await this.watcherService.movePageWatchersToSpace(
-          pageIdsToMove,
+          allPageIdsToMove,
           spaceId,
           {
             trx,
           },
         );
 
+        // trashed pages are embedded again when restored
         await this.aiQueue.add(
           QueueJob.PAGE_MOVED_TO_SPACE,
           {
@@ -727,6 +810,18 @@ export class PageService {
     for (const [, entry] of pageMap) {
       slugIdMap.set(entry.oldSlugId, entry);
     }
+
+    const restrictedAncestor = isDuplicateInSameSpace
+      ? undefined
+      : await this.pagePermissionRepo.findRestrictedAncestor(rootPage.id);
+    const restrictionCopies = pages.map((page) => ({
+      // a copy in another space leaves the original's parents behind, so its root takes their nearest restriction
+      sourcePageId:
+        page.id === rootPage.id && restrictedAncestor
+          ? restrictedAncestor.pageId
+          : page.id,
+      pageId: pageMap.get(page.id).newPageId,
+    }));
 
     const copiedAttachmentIds = new Map<string, string>();
 
@@ -863,13 +958,27 @@ export class PageService {
       }),
     );
 
-    await executeTx(this.db, async (trx) => {
+    const copiedRestrictions = await executeTx(this.db, async (trx) => {
       await trx.insertInto('pages').values(insertablePages).execute();
       await this.labelRepo.copyLabelsToPages(
         new Map([...pageMap].map(([oldId, entry]) => [oldId, entry.newPageId])),
         trx,
       );
+      return this.pagePermissionRepo.copyRestrictions(
+        restrictionCopies,
+        {
+          spaceId,
+          workspaceId: rootPage.workspaceId,
+          writerId: authUser.id,
+          onlySpaceMembers: !isDuplicateInSameSpace,
+        },
+        trx,
+      );
     });
+
+    if (copiedRestrictions > 0) {
+      await this.wsService.invalidateSpaceRestrictionCache(spaceId);
+    }
 
     // Extract transclusions from every duplicated page and persist them in
     // one statement. Duplication bypasses Yjs onStoreDocument; brand-new
@@ -1098,7 +1207,8 @@ export class PageService {
                 'p.deletedAt',
               ])
               .innerJoin('page_ancestors as pa', 'pa.parentPageId', 'p.id')
-              .where('p.deletedAt', 'is', null),
+              .where('p.deletedAt', 'is', null)
+              .whereRef('p.spaceId', '=', 'pa.spaceId'),
           ),
       )
       .selectFrom('page_ancestors')
