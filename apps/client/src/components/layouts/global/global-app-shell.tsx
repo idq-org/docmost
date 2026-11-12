@@ -1,4 +1,4 @@
-import { AppShell, Container } from "@mantine/core";
+import { AppShell, Box, Container, rem } from "@mantine/core";
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -20,6 +20,7 @@ import { AppHeader } from "@/components/layouts/global/app-header.tsx";
 import Aside from "@/components/layouts/global/aside.tsx";
 import classes from "./app-shell.module.css";
 import { useTrialEndAction } from "@/ee/hooks/use-trial-end-action.tsx";
+import AnnouncementBanners from "@/ee/announcement/components/announcement-banners.tsx";
 import { useToggleSidebar } from "@/components/layouts/global/hooks/hooks/use-toggle-sidebar.ts";
 import GlobalSidebar from "@/components/layouts/global/global-sidebar.tsx";
 import { ASIDE_PANEL_ID } from "@/hooks/use-toggle-aside.tsx";
@@ -39,6 +40,7 @@ export default function GlobalAppShell({
   const [{ isAsideOpen, tab: asideTab }] = useAtom(asideStateAtom);
   const [sidebarWidth, setSidebarWidth] = useAtom(sidebarWidthAtom);
   const [isResizing, setIsResizing] = useState(false);
+  const [announcementsHeight, setAnnouncementsHeight] = useState(0);
   const sidebarRef = useRef(null);
 
   const startResizing = React.useCallback((mouseDownEvent) => {
@@ -91,7 +93,8 @@ export default function GlobalAppShell({
     <>
       <SkipToMain />
       <AppShell
-      header={{ height: 45 }}
+      // Mantine reads numeric sizes as rem; the measured banner height is in px
+      header={{ height: `calc(${rem(45)} + ${announcementsHeight}px)` }}
       navbar={{
         width: isSpaceRoute ? sidebarWidth : 300,
         breakpoint: "sm",
@@ -109,8 +112,14 @@ export default function GlobalAppShell({
       }
       padding="md"
     >
-      <AppShell.Header px="md" className={classes.header}>
-        <AppHeader />
+      <AppShell.Header className={classes.header}>
+        <AnnouncementBanners
+          surface="app"
+          onHeightChange={setAnnouncementsHeight}
+        />
+        <Box px="md" h={45}>
+          <AppHeader />
+        </Box>
       </AppShell.Header>
       <AppShell.Navbar
         className={classes.navbar}
@@ -142,7 +151,11 @@ export default function GlobalAppShell({
         {/* IDQ: source code link (AGPL-3.0) */}
         <SourceLink compact />
       </AppShell.Navbar>
-      <AppShell.Main id={MAIN_CONTENT_ID} tabIndex={-1}>
+      <AppShell.Main
+        id={MAIN_CONTENT_ID}
+        tabIndex={-1}
+        className={classes.main}
+      >
         {isSettingsRoute ? (
           <Container size={900} pb={80}>
             {children}
