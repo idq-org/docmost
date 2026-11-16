@@ -41,6 +41,22 @@ Each workspace chooses its words: a prefix per field, the values of each column 
 
 Stored in `idq_task_links`: pages (of any space), files (uploaded to the task page or already in Docmost) and external `http(s)` links. Links written in the text of a page aren't linked materials; to bring existing ones to the board, call `POST /api/idq/tasks/links/add` with `taskPageId`, `type: "page"` and `targetPageId` (id or slug id).
 
+## From MCP
+
+The [IDQ MCP](MCP.md) has one tool for each operation of the board, with the same permissions:
+
+| Tool | What it does |
+|---|---|
+| `list_tasks` | the board of a space, with the filters of the web board |
+| `get_task` | fields, linked materials and "used in" of a page |
+| `get_task_options` | values in use, and the members with the value that stands for each |
+| `create_task`, `update_task` | new task in a column; status, priority, areas and people in charge |
+| `add_task_link`, `remove_task_link` | linked materials |
+| `get_task_settings`, `update_task_settings` | label vocabulary (changing it is for workspace admins) |
+| `list_assignee_mappings`, `set_assignee_mapping` | who a person-in-charge value stands for (workspace admins) |
+
+A new task has no content unless the tool passes it: the starting table and sections are written by the web app.
+
 ## For other IDQ features
 
 - **Deadlines** ([issue #12](https://github.com/idq-org/docmost/issues/12)): the board doesn't read deadlines itself. The deadlines feature provides `IDQ_TASK_DEADLINE_SOURCE` (`apps/server/src/idq/tasks/idq-task-deadlines.ts`) in `IdqModule`; until then cards show no deadline, and a failing source never breaks the board.
@@ -51,4 +67,4 @@ Stored in `idq_task_links`: pages (of any space), files (uploaded to the task pa
 - Server: `apps/server/src/idq/tasks/`. Only `idq-task-fields.ts` and `idq-task-label-store.ts` know the label format, so the fields can move to a table of their own later. Permissions, label writes (Docmost's `LabelService`) and page creation (Docmost's page controller) go through `apps/server/src/idq/core/`.
 - Tables: `idq_task_settings` (vocabulary), `idq_task_links` (materials), `idq_task_assignees` (people in charge).
 - Client: `apps/client/src/idq/tasks/`, using Docmost through `apps/client/src/idq/core/`. Docmost files only get hook lines: `App.tsx` (route), `space-sidebar.tsx` (sidebar entry), `full-editor.tsx` (panel under the title).
-- Tests: `apps/server/src/idq/tasks/idq-task-fields.spec.ts`, and `apps/server/test/idq-tasks.e2e-spec.ts`, which runs against an instance with an empty database (see the top of the file).
+- Tests: `apps/server/src/idq/tasks/idq-task-fields.spec.ts`, and `apps/server/test/idq-tasks.e2e-spec.ts`, which runs against an instance with an empty database (see the top of the file). The MCP tools are tested in `apps/server/test/idq-mcp.e2e-spec.ts`.
