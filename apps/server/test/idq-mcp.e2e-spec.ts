@@ -35,6 +35,17 @@ const EXPECTED_TOOLS = [
   'search_attachments',
   'list_workspace_members',
   'get_current_user',
+  'list_tasks',
+  'get_task',
+  'get_task_options',
+  'get_task_settings',
+  'create_task',
+  'update_task',
+  'add_task_link',
+  'remove_task_link',
+  'list_assignee_mappings',
+  'set_assignee_mapping',
+  'update_task_settings',
 ].sort();
 
 const PASSWORD = 'idq-e2e-password-123';
@@ -347,7 +358,7 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect(body.result.serverInfo.name).toBe('idq-docmost');
     });
 
-    it('lists the 20 tools with the Docmost names', async () => {
+    it('lists the 20 tools with the Docmost names and the 11 task tools', async () => {
       const { body } = await mcp(memberKey, 'tools/list');
       const names = body.result.tools.map((t: any) => t.name).sort();
       expect(names).toEqual(EXPECTED_TOOLS);
@@ -698,6 +709,415 @@ describeE2E('IDQ MCP (e2e)', () => {
     });
   });
 
+  describe('tasks', () => {
+    let taskId: string;
+    let otherTaskId: string;
+    let secretTaskId: string;
+    let pageLinkId: string;
+
+    const getTask = async (key: string, pageId: string) =>
+      (await callTool(key, 'get_task', { page_id: pageId })).data;
+
+    beforeAll(async () => {
+      // A task in the restricted space, which only the admin can see
+      const secretTask = await api(admin, '/idq/tasks/create', {
+        spaceId: secretSpaceId,
+        title: `Task ${SECRET_WORD}`,
+        status: 'todo',
+      });
+      secretTaskId = secretTask.data.task.pageId;
+    });
+
+    it('a writer creates tasks and reads them on the board', async () => {
+      const created = await callTool(memberKey, 'create_task', {
+        space_id: sharedSpaceId,
+        title: 'Print the flyers',
+        status: 'in_progress',
+        markdown: '## Goal\n\nFlyers for the open day',
+      });
+      expect(created.isError).toBe(false);
+      expect(created.data.task.status).toBe('in_progress');
+      taskId = created.data.task.pageId;
+
+      const other = await callTool(memberKey, 'create_task', {
+        space_id: sharedSpaceId,
+        title: 'Book the room',
+      });
+      expect(other.data.task.status).toBe('todo');
+      otherTaskId = other.data.task.pageId;
+
+      const board = await callTool(memberKey, 'list_tasks', {
+        space_id: sharedSpaceId,
+      });
+      expect(board.isError).toBe(false);
+      expect(board.data.canCreate).toBe(true);
+      expect(board.data.tasks.map((t: any) => t.pageId).sort()).toEqual(
+        [taskId, otherTaskId].sort(),
+      );
+      const task = board.data.tasks.find((t: any) => t.pageId === taskId);
+      expect(task).toMatchObject({
+        title: 'Print the flyers',
+        status: 'in_progress',
+        assignees: [],
+        canEdit: true,
+      });
+      expect(task.url).toContain('/s/shared/p/print-the-flyers-');
+
+      const page = await callTool(memberKey, 'get_page', { page_id: taskId });
+      expect(page.data.content).toContain('Flyers for the open day');
+    });
+
+    it('update_task changes the fields that are sent, and only those', async () => {
+      const r = await callTool(memberKey, 'update_task', {
+        page_id: taskId,
+        status: 'to_review',
+        priority: 'High',
+        areas: ['Open day'],
+        assignees: ['Member', 'External Volunteer'],
+      });
+      expect(r.isError).toBe(false);
+      expect(r.data.task).toMatchObject({
+        status: 'to_review',
+        priority: 'high',
+        areas: ['open-day'],
+      });
+      // A name that matches a member resolves to them; any other stays a name
+      expect(r.data.task.assignees).toEqual([
+        { value: 'external-volunteer', name: 'External Volunteer', user: null },
+        {
+          value: 'member',
+          name: 'Member',
+          user: { id: memberId, name: 'Member', avatarUrl: null },
+        },
+      ]);
+      expect(r.text).not.toContain('@idq.test');
+
+      const cleared = await callTool(memberKey, 'update_task', {
+        page_id: taskId,
+        priority: null,
+      });
+      expect(cleared.isError).toBe(false);
+      expect(cleared.data.task).toMatchObject({
+        status: 'to_review',
+        priority: null,
+        areas: ['open-day'],
+      });
+      expect(cleared.data.task.assignees).toHaveLength(2);
+    });
+
+    it('update_task rejects empty calls, unknown statuses and pages that are not tasks', async () => {
+      const attempts: object[] = [
+        { page_id: taskId },
+        { page_id: taskId, status: 'archived' },
+        { page_id: taskId, areas: ['not valid!', '~'] },
+        { page_id: sharedPageId, status: 'done' },
+      ];
+      for (const args of attempts) {
+        const r = await callTool(memberKey, 'update_task', args);
+        if (!r.isError) throw new Error(`should fail: ${JSON.stringify(args)}`);
+      }
+      expect((await getTask(memberKey, taskId)).task.status).toBe('to_review');
+      expect((await getTask(memberKey, sharedPageId)).isTask).toBe(false);
+    });
+
+    it('list_tasks filters like the board', async () => {
+      const set = await callTool(memberKey, 'update_task', {
+        page_id: otherTaskId,
+        priority: 'low',
+        areas: ['Logistics'],
+        assignees: ['Reader'],
+      });
+      expect(set.isError).toBe(false);
+
+      const ids = async (filters: object) => {
+        const r = await callTool(memberKey, 'list_tasks', {
+          space_id: sharedSpaceId,
+          ...filters,
+        });
+        return r.data.tasks.map((t: any) => t.pageId);
+      };
+      expect(await ids({ mine: true })).toEqual([taskId]);
+      expect(await ids({ assignee: 'Reader' })).toEqual([otherTaskId]);
+      expect(await ids({ area: 'Open day' })).toEqual([taskId]);
+      expect(await ids({ priority: 'low' })).toEqual([otherTaskId]);
+      expect(await ids({ priority: 'low', mine: true })).toEqual([]);
+    });
+
+    it('get_task_options and get_task_settings give the values to choose from', async () => {
+      const options = await callTool(memberKey, 'get_task_options', {
+        space_id: sharedSpaceId,
+      });
+      expect(options.isError).toBe(false);
+      expect(options.data.areas).toEqual(['logistics', 'open-day']);
+      expect(
+        options.data.members.find((m: any) => m.id === readerId).value,
+      ).toBe('reader');
+      expect(options.text).not.toContain('@idq.test');
+
+      const settings = await callTool(memberKey, 'get_task_settings');
+      expect(settings.data.isDefault).toBe(true);
+      expect(settings.data.vocabulary.prefixes.assignee).toBe('assignee-');
+      expect(settings.data.statuses).toContain('to_review');
+    });
+
+    it('links materials to a task and removes them', async () => {
+      const page = await callTool(memberKey, 'add_task_link', {
+        page_id: taskId,
+        type: 'page',
+        target_page_id: sharedPageId,
+      });
+      expect(page.isError).toBe(false);
+      expect(page.data.page.id).toBe(sharedPageId);
+      pageLinkId = page.data.id;
+
+      const url = await callTool(memberKey, 'add_task_link', {
+        page_id: taskId,
+        type: 'url',
+        url: 'https://example.org/flyer',
+        title: 'Flyer draft',
+      });
+      expect(url.isError).toBe(false);
+
+      const notHttp = await callTool(memberKey, 'add_task_link', {
+        page_id: taskId,
+        type: 'url',
+        url: 'javascript:alert(1)',
+      });
+      expect(notHttp.isError).toBe(true);
+
+      const task = await getTask(memberKey, taskId);
+      expect(task.isTask).toBe(true);
+      expect(task.links.map((l: any) => l.title)).toEqual([
+        'Shared page',
+        'Flyer draft',
+      ]);
+      const linked = await getTask(memberKey, sharedPageId);
+      expect(linked.usedIn.map((u: any) => u.taskPageId)).toEqual([taskId]);
+
+      const removed = await callTool(memberKey, 'remove_task_link', {
+        link_id: url.data.id,
+      });
+      expect(removed.isError).toBe(false);
+      expect(
+        (await getTask(memberKey, taskId)).links.map((l: any) => l.id),
+      ).toEqual([pageLinkId]);
+    });
+
+    it('a reader sees the board but cannot change it', async () => {
+      const board = await callTool(readerKey, 'list_tasks', {
+        space_id: sharedSpaceId,
+      });
+      expect(board.isError).toBe(false);
+      expect(board.data.canCreate).toBe(false);
+      expect(board.data.tasks).toHaveLength(2);
+      expect(board.data.tasks.some((t: any) => t.canEdit)).toBe(false);
+
+      const attempts: [string, object][] = [
+        ['create_task', { space_id: sharedSpaceId, title: 'x' }],
+        ['update_task', { page_id: taskId, status: 'done' }],
+        ['update_task', { page_id: taskId, assignees: ['reader'] }],
+        [
+          'add_task_link',
+          { page_id: taskId, type: 'url', url: 'https://example.org' },
+        ],
+        ['remove_task_link', { link_id: pageLinkId }],
+      ];
+      for (const [tool, args] of attempts) {
+        const r = await callTool(readerKey, tool, args);
+        if (!r.isError) throw new Error(`${tool} should fail: ${r.text}`);
+      }
+
+      const task = await getTask(readerKey, taskId);
+      expect(task.canEdit).toBe(false);
+      expect(task.task.status).toBe('to_review');
+      expect(task.task.assignees).toHaveLength(2);
+      expect(task.links.map((l: any) => l.id)).toEqual([pageLinkId]);
+      const [{ count }] = await sql`
+        select count(*)::int as count from page_labels pl
+        join labels l on l.id = pl.label_id
+        join pages p on p.id = pl.page_id
+        where p.space_id = ${sharedSpaceId} and l.name like 'status-%'`;
+      expect(count).toBe(2);
+    });
+
+    it('a member who cannot see a restricted space finds no task of it', async () => {
+      const attempts: [string, object][] = [
+        ['list_tasks', { space_id: secretSpaceId }],
+        ['get_task_options', { space_id: secretSpaceId }],
+        ['get_task', { page_id: secretTaskId }],
+        ['create_task', { space_id: secretSpaceId, title: 'x' }],
+        ['update_task', { page_id: secretTaskId, status: 'done' }],
+        ['update_task', { page_id: secretTaskId, assignees: ['member'] }],
+        [
+          'add_task_link',
+          { page_id: secretTaskId, type: 'url', url: 'https://example.org' },
+        ],
+        [
+          'add_task_link',
+          { page_id: taskId, type: 'page', target_page_id: secretTaskId },
+        ],
+      ];
+      for (const [tool, args] of attempts) {
+        const r = await callTool(memberKey, tool, args);
+        if (!r.isError) throw new Error(`${tool} should fail: ${r.text}`);
+        expect(r.text).not.toContain(SECRET_WORD);
+      }
+
+      const [{ count }] = await sql`
+        select count(*)::int as count from pages where space_id = ${secretSpaceId}`;
+      expect(count).toBe(2);
+      const labels = await sql`
+        select l.name from page_labels pl join labels l on l.id = pl.label_id
+        where pl.page_id = ${secretTaskId}`;
+      expect(labels.map((l) => l.name)).toEqual(['status-todo']);
+
+      // The admin links the restricted task and puts a name on it: the
+      // member doesn't see the link, nor the name among the values in use.
+      const link = await callTool(adminKey, 'add_task_link', {
+        page_id: taskId,
+        type: 'page',
+        target_page_id: secretTaskId,
+      });
+      expect(link.isError).toBe(false);
+      const named = await callTool(adminKey, 'update_task', {
+        page_id: secretTaskId,
+        assignees: [`Owner ${SECRET_WORD}`],
+      });
+      expect(named.isError).toBe(false);
+
+      const task = await callTool(memberKey, 'get_task', { page_id: taskId });
+      expect(task.data.links.map((l: any) => l.id)).toEqual([pageLinkId]);
+      expect(task.text).not.toContain(SECRET_WORD);
+      const board = await callTool(memberKey, 'list_tasks', {
+        space_id: sharedSpaceId,
+      });
+      expect(
+        board.data.tasks.find((t: any) => t.pageId === taskId).linkCount,
+      ).toBe(1);
+      expect(board.text).not.toContain(SECRET_WORD);
+      const options = await callTool(memberKey, 'get_task_options', {
+        space_id: sharedSpaceId,
+      });
+      expect(options.text).not.toContain(SECRET_WORD);
+
+      const adminBoard = await callTool(adminKey, 'list_tasks', {
+        space_id: secretSpaceId,
+      });
+      expect(adminBoard.data.tasks.map((t: any) => t.pageId)).toEqual([
+        secretTaskId,
+      ]);
+      await callTool(adminKey, 'remove_task_link', { link_id: link.data.id });
+    });
+
+    it('only workspace admins manage who a person-in-charge value stands for', async () => {
+      const attempts: [string, object][] = [
+        ['list_assignee_mappings', {}],
+        [
+          'set_assignee_mapping',
+          { value: 'external-volunteer', user_id: readerId },
+        ],
+      ];
+      for (const [tool, args] of attempts) {
+        const r = await callTool(memberKey, tool, args);
+        if (!r.isError) throw new Error(`${tool} should fail: ${r.text}`);
+        expect(r.text).not.toContain(SECRET_WORD);
+      }
+
+      const set = await callTool(adminKey, 'set_assignee_mapping', {
+        value: 'External Volunteer',
+        user_id: readerId,
+      });
+      expect(set.isError).toBe(false);
+      expect(set.data).toEqual({
+        value: 'external-volunteer',
+        userId: readerId,
+      });
+
+      const list = await callTool(adminKey, 'list_assignee_mappings');
+      expect(list.isError).toBe(false);
+      expect(list.data.items).toEqual(
+        expect.arrayContaining([
+          {
+            value: 'external-volunteer',
+            user: { id: readerId, name: 'Reader', avatarUrl: null },
+            automatic: null,
+          },
+          {
+            value: 'member',
+            user: null,
+            automatic: { id: memberId, name: 'Member', avatarUrl: null },
+          },
+        ]),
+      );
+      expect(list.text).not.toContain('@idq.test');
+      expect((await getTask(memberKey, taskId)).task.assignees[0]).toEqual({
+        value: 'external-volunteer',
+        name: 'Reader',
+        user: { id: readerId, name: 'Reader', avatarUrl: null },
+      });
+
+      const unknown = await callTool(adminKey, 'set_assignee_mapping', {
+        value: 'external-volunteer',
+        user_id: workspaceId,
+      });
+      expect(unknown.isError).toBe(true);
+
+      const unset = await callTool(adminKey, 'set_assignee_mapping', {
+        value: 'external-volunteer',
+        user_id: null,
+      });
+      expect(unset.isError).toBe(false);
+      expect((await getTask(memberKey, taskId)).task.assignees[0]).toEqual({
+        value: 'external-volunteer',
+        name: 'External Volunteer',
+        user: null,
+      });
+    });
+
+    it('only workspace admins change the vocabulary, and the board follows it', async () => {
+      const { vocabulary } = (await callTool(adminKey, 'get_task_settings'))
+        .data;
+      const custom = {
+        ...vocabulary,
+        prefixes: { ...vocabulary.prefixes, status: 'state-' },
+      };
+
+      const byMember = await callTool(memberKey, 'update_task_settings', {
+        vocabulary: custom,
+      });
+      expect(byMember.isError).toBe(true);
+      const clash = await callTool(adminKey, 'update_task_settings', {
+        vocabulary: {
+          ...custom,
+          prefixes: { ...custom.prefixes, area: 'state-area-' },
+        },
+      });
+      expect(clash.isError).toBe(true);
+
+      const updated = await callTool(adminKey, 'update_task_settings', {
+        vocabulary: custom,
+      });
+      expect(updated.isError).toBe(false);
+      expect(updated.data.isDefault).toBe(false);
+      expect(updated.data.vocabulary.prefixes.status).toBe('state-');
+
+      // Labels on pages are not renamed: the tasks leave the board
+      const board = await callTool(memberKey, 'list_tasks', {
+        space_id: sharedSpaceId,
+      });
+      expect(board.data.tasks).toHaveLength(0);
+
+      const restored = await callTool(adminKey, 'update_task_settings', {
+        vocabulary,
+      });
+      expect(restored.isError).toBe(false);
+      const back = await callTool(memberKey, 'list_tasks', {
+        space_id: sharedSpaceId,
+      });
+      expect(back.data.tasks).toHaveLength(2);
+    });
+  });
+
   describe('write log and revocation', () => {
     it('logs write operations with the key and the user', async () => {
       const rows = await sql`
@@ -706,6 +1126,8 @@ describeE2E('IDQ MCP (e2e)', () => {
       const tools = rows.map((r) => r.tool);
       expect(tools).toContain('create_page');
       expect(tools).toContain('update_page');
+      expect(tools).toContain('create_task');
+      expect(tools).toContain('update_task');
       expect(rows.some((r) => r.success === false)).toBe(true);
       expect(rows.every((r) => r.user_id === memberId)).toBe(true);
     });
