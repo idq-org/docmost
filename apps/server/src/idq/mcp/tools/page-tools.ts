@@ -16,13 +16,13 @@ import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
 import { toDto } from '../idq-mcp-core.service';
 import { defineTool, ToolContext } from './tool-context';
 
-const pageId = z
+export const pageId = z
   .string()
   .min(1)
   .describe(
     'Page ID (UUID) or the short slug ID shown at the end of page URLs',
   );
-const spaceId = z.string().uuid().describe('Space ID (UUID)');
+export const spaceId = z.string().uuid().describe('Space ID (UUID)');
 const limit = z
   .number()
   .int()

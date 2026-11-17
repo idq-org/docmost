@@ -5,11 +5,19 @@ import { IdqApiKeyPrincipal } from '../../api-keys/idq-api-key.service';
 import { IdqMcpCoreService, McpInputError } from '../idq-mcp-core.service';
 import { IdqMcpWriteLogService } from '../idq-mcp-write-log.service';
 import { IdqAttachmentSearchService } from '../../core/idq-attachment-search.service';
+import { IdqTaskBoardService } from '../../tasks/idq-task-board.service';
+import { IdqTaskLinksService } from '../../tasks/idq-task-links.service';
+import { IdqTaskAssigneesService } from '../../tasks/idq-task-assignees.service';
+import { IdqTaskSettingsService } from '../../tasks/idq-task-settings.service';
 
 export type ToolContext = {
   principal: IdqApiKeyPrincipal;
   core: IdqMcpCoreService;
   attachments: IdqAttachmentSearchService;
+  taskBoard: IdqTaskBoardService;
+  taskLinks: IdqTaskLinksService;
+  taskAssignees: IdqTaskAssigneesService;
+  taskSettings: IdqTaskSettingsService;
   writeLog: IdqMcpWriteLogService;
 };
 

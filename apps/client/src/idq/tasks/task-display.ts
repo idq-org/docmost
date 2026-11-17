@@ -127,28 +127,3 @@ export function formatFileSize(bytes: number): string {
 export function taskBoardUrl(spaceSlug: string): string {
   return `/s/${spaceSlug}/board`;
 }
-
-/**
- * Markdown of a new task page: a table for what labels can't hold, then
- * goal, steps (a checklist) and references, in the writer's language.
- * Status, priority, area and people in charge are labels, shown in the
- * panel under the title.
- */
-export function newTaskContent(t: TFunction): string {
-  return [
-    `| ${t("Field")} | ${t("Value")} |`,
-    "| --- | --- |",
-    `| **${t("Deadline")}** | — |`,
-    `| **${t("Depends on")}** | — |`,
-    "",
-    `## ${t("Goal")}`,
-    "",
-    `## ${t("Steps")}`,
-    "",
-    // An empty checklist item would become plain text.
-    `- [ ] ${t("First step")}`,
-    "",
-    `## ${t("References")}`,
-    "",
-  ].join("\n");
-}

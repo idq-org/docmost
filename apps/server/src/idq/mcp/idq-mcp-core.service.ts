@@ -123,4 +123,13 @@ export class IdqMcpCoreService {
     });
     return `${this.environmentService.getAppUrl()}/s/${spaceSlug}/p/${titleSlug}-${slugId}`;
   }
+
+  /** URL of a page known by ID, for results that don't carry its space. */
+  async pageUrlById(pageId: string) {
+    const page = await this.pageRepo.findById(pageId, { includeSpace: true });
+    if (!page) return undefined;
+    // includeSpace adds the space, which the Page type doesn't declare.
+    const space = (page as typeof page & { space?: { slug?: string } }).space;
+    return this.pageUrl(space?.slug, page.slugId, page.title);
+  }
 }

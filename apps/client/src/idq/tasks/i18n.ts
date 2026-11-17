@@ -41,16 +41,6 @@ const it: Record<string, string> = {
   "Enter to create, Esc to cancel": "Invio per creare, Esc per annullare",
   "Failed to create the task": "Creazione del task non riuscita",
 
-  // Sections of a new task page
-  Field: "Campo",
-  Value: "Valore",
-  Deadline: "Scadenza",
-  "Depends on": "Dipende da",
-  Goal: "Obiettivo",
-  Steps: "Passi",
-  "First step": "Primo passo",
-  References: "Riferimenti",
-
   // Filters
   Priority: "Priorità",
   Area: "Area",

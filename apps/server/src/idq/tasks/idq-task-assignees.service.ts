@@ -213,7 +213,8 @@ export class IdqTaskAssigneesService {
       .where('deactivatedAt', 'is', null);
   }
 
-  private assertAdmin(user: User, workspace: Workspace) {
+  /** Throws ForbiddenException unless the user is a workspace admin. */
+  assertAdmin(user: User, workspace: Workspace) {
     const ability = this.workspaceAbility.createForUser(user, workspace);
     if (
       ability.cannot(WorkspaceCaslAction.Manage, WorkspaceCaslSubject.Settings)

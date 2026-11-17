@@ -215,15 +215,17 @@ export class IdqTaskLabelStore {
   }
 
   /**
-   * Task labels on pages of the spaces the user belongs to, with their page.
-   * The caller filters the pages the user can open.
+   * Task labels on pages of the spaces the user belongs to (or of one of
+   * them, with spaceId), with their page. The caller filters the pages the
+   * user can open.
    */
   async labelsInUserSpaces(
     workspaceId: string,
     userId: string,
     vocabulary: TaskVocabulary,
+    spaceId?: string,
   ): Promise<Array<{ pageId: string; name: string }>> {
-    return this.db
+    let query = this.db
       .selectFrom('labels')
       .innerJoin('pageLabels', 'pageLabels.labelId', 'labels.id')
       .innerJoin('pages', 'pages.id', 'pageLabels.pageId')
@@ -236,8 +238,9 @@ export class IdqTaskLabelStore {
         'in',
         this.spaceMemberRepo.getUserSpaceIdsQuery(userId),
       )
-      .where(labelOfFields(vocabulary, TASK_FIELDS))
-      .execute();
+      .where(labelOfFields(vocabulary, TASK_FIELDS));
+    if (spaceId) query = query.where('pages.spaceId', '=', spaceId);
+    return query.execute();
   }
 
   /**

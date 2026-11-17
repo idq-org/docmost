@@ -29,17 +29,33 @@ Each workspace chooses its words: a prefix per field, the values of each column 
 
 ## New tasks
 
-*New task* in a column creates the page under the page that holds most tasks of the space (an index page, for instance), or at the root. The page starts with a table for what labels can't hold (deadline, dependencies), then goal, steps (a checklist) and references, in the writer's language.
+*New task* in a column creates the page under the page that holds most tasks of the space (an index page, for instance), or at the root. The page starts with a table for what labels can't hold (deadline, dependencies), then goal, steps (a checklist) and references, in the writer's language (English or Italian). The server writes these sections (`idq-task-template.ts`) whenever a task is created without content, from the board or from MCP.
 
 ## Permissions
 
 - Space readers see the board and the panels; writers and admins also move cards, edit fields, create tasks and link materials. Page-level restrictions apply as in the rest of Docmost.
-- Linked pages and files keep their own permissions: a viewer only sees, and counts, the ones they can open. The pickers only offer values from pages the user can open.
+- Linked pages and files keep their own permissions: a viewer only sees, and counts, the ones they can open. The pickers only offer values from pages of the space that the user can open.
 - Board settings and people in charge are for workspace admins.
 
 ## Linked materials
 
 Stored in `idq_task_links`: pages (of any space), files (uploaded to the task page or already in Docmost) and external `http(s)` links. Links written in the text of a page aren't linked materials; to bring existing ones to the board, call `POST /api/idq/tasks/links/add` with `taskPageId`, `type: "page"` and `targetPageId` (id or slug id).
+
+## From MCP
+
+The [IDQ MCP](MCP.md) has one tool for each operation of the board, with the same permissions:
+
+| Tool | What it does |
+|---|---|
+| `list_tasks` | the board of a space, with the filters of the web board, by value or by name |
+| `get_task` | fields, linked materials and "used in" of a page |
+| `get_task_options` | values in use in the space, and the members with the value that stands for each |
+| `create_task`, `update_task` | new task in a column; status, priority, areas and people in charge, in one write |
+| `add_task_link`, `remove_task_link` | linked materials |
+| `get_task_settings`, `update_task_settings` | label vocabulary (changing it is for workspace admins) |
+| `list_assignee_mappings`, `set_assignee_mapping` | who a person-in-charge value stands for (workspace admins) |
+
+A new task gets the same starting table and sections as on the board, unless the tool passes its own Markdown.
 
 ## For other IDQ features
 
@@ -51,4 +67,4 @@ Stored in `idq_task_links`: pages (of any space), files (uploaded to the task pa
 - Server: `apps/server/src/idq/tasks/`. Only `idq-task-fields.ts` and `idq-task-label-store.ts` know the label format, so the fields can move to a table of their own later. Permissions, label writes (Docmost's `LabelService`) and page creation (Docmost's page controller) go through `apps/server/src/idq/core/`.
 - Tables: `idq_task_settings` (vocabulary), `idq_task_links` (materials), `idq_task_assignees` (people in charge).
 - Client: `apps/client/src/idq/tasks/`, using Docmost through `apps/client/src/idq/core/`. Docmost files only get hook lines: `App.tsx` (route), `space-sidebar.tsx` (sidebar entry), `full-editor.tsx` (panel under the title).
-- Tests: `apps/server/src/idq/tasks/idq-task-fields.spec.ts`, and `apps/server/test/idq-tasks.e2e-spec.ts`, which runs against an instance with an empty database (see the top of the file).
+- Tests: `apps/server/src/idq/tasks/idq-task-fields.spec.ts`, and `apps/server/test/idq-tasks.e2e-spec.ts`, which runs against an instance with an empty database (see the top of the file). The MCP tools are tested in `apps/server/test/idq-mcp.e2e-spec.ts`.

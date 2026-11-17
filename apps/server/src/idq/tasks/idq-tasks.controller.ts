@@ -86,7 +86,7 @@ export class IdqTaskCreateDto {
   @IsIn(TASK_STATUSES)
   status: TaskStatus;
 
-  /** Markdown of the new page. */
+  /** Markdown of the new page; without it, the sections of a task. */
   @IsOptional()
   @IsString()
   @MaxLength(20000)
@@ -289,13 +289,8 @@ export class IdqTasksController {
   /** Who each person-in-charge label stands for. Workspace admins only. */
   @HttpCode(HttpStatus.OK)
   @Post('assignees/list')
-  async listAssignees(
-    @AuthUser() user: User,
-    @AuthWorkspace() workspace: Workspace,
-  ) {
-    const vocabulary = await this.settings.vocabulary(workspace.id);
-    const used = await this.board.usedValues(user, workspace.id, vocabulary);
-    return this.assignees.listMappings(user, workspace, used.assignee);
+  listAssignees(@AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
+    return this.board.assigneeMappings(user, workspace);
   }
 
   @HttpCode(HttpStatus.OK)
