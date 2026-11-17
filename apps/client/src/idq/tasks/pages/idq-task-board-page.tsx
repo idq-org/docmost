@@ -33,12 +33,7 @@ import {
 import { useTaskSettings } from "../hooks/use-task-settings";
 import { useAddPageToTree } from "@/idq/core/space-tree";
 import { IBoardTask, ITaskBoard, TaskStatus } from "../types";
-import {
-  compareTasks,
-  newTaskContent,
-  statusColor,
-  statusName,
-} from "../task-display";
+import { compareTasks, statusColor, statusName } from "../task-display";
 import { TaskColumn } from "../components/task-column";
 import {
   NO_FILTERS,
@@ -130,11 +125,8 @@ function Board({ board }: { board: ITaskBoard }) {
   };
 
   const create = async (title: string, status: TaskStatus) => {
-    const { page } = await createTask.mutateAsync({
-      title,
-      status,
-      content: newTaskContent(t),
-    });
+    // The server writes the sections of a new task, in the user's language.
+    const { page } = await createTask.mutateAsync({ title, status });
     addPageToTree(page);
   };
 

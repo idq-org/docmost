@@ -45,7 +45,7 @@ export const createTask = (data: {
   spaceId: string;
   title: string;
   status: TaskStatus;
-  /** Markdown of the new page. */
+  /** Markdown of the new page; without it, the sections of a task. */
   content?: string;
 }) => post<ICreatedTask>("/create", data);
 

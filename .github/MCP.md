@@ -36,7 +36,7 @@ Every call acts as the user who created the key and never goes beyond their spac
 
 Page content goes in and out as Markdown: headings, lists, tables, code blocks and Mermaid diagrams (` ```mermaid ` blocks). Comments are Markdown too, but only with what the web app's comment editor can show: paragraphs, headings, lists, quotes, code blocks, links and text formatting. A comment with a table, a task list or an image is refused with an error, instead of showing up empty in the web app. The server itself describes the tool parameters: clients read them when they connect.
 
-The task tools aren't part of the Docmost MCP: they give access to the [IDQ task board](TASKS.md), with the same permissions as the web app. `list_tasks` takes the filters of the board (priority, area, person in charge, *My tasks*). The last three tools are for workspace admins.
+The task tools aren't part of the Docmost MCP: they give access to the [IDQ task board](TASKS.md), with the same permissions as the web app. `list_tasks` takes the filters of the board (priority, area, person in charge, *My tasks*); a filter takes a value or a name, and a person in charge also matches the other values that stand for the same member. The last three tools are for workspace admins.
 
 ## Limits and log
 
@@ -55,8 +55,8 @@ The task tools aren't part of the Docmost MCP: they give access to the [IDQ task
   - `settings/` holds the admin switch.
   - `database/` holds the migrations.
   - `core/` gives access to Docmost's controllers and permission checks, shared with the other IDQ features.
-- The tools call the core controllers (pages, spaces, comments, search), so they run exactly the same permission checks as the web app. The only tool with a query of our own is `search_attachments`: it filters on the space each page is in now, then applies the core page permissions.
-- The task tools (`mcp/tools/task-tools.ts`) call the services behind the endpoints of `IdqTasksController`, with the same DTOs, so they run the same checks as the board.
+- The page, space, comment and search tools call the core controllers, so they run exactly the same permission checks as the web app. Among them, the only tool with a query of our own is `search_attachments`: it filters on the space each page is in now, then applies the core page permissions.
+- The task tools (`mcp/tools/task-tools.ts`) call the IDQ task services behind the endpoints of `IdqTasksController`, with the same DTOs, so they run the same checks as the board. Those services have their own label and link queries (`apps/server/src/idq/tasks/`), filtered by space membership and by the core page permissions.
 - The IDQ migrations run at startup, after Docmost's, with their own tracking table (`idq_kysely_migration`). Migrations coming from upstream never end up in the middle of ours.
 - Client: `apps/client/src/idq/mcp/`. The route is in `apps/client/src/idq/routes.tsx` and the menu item in `apps/client/src/idq/settings-nav.ts`. The Italian translations are in `apps/client/src/idq/mcp/i18n.ts`, not in `public/locales`, so they don't conflict with Docmost's updates.
 - Three Docmost files change, each with one import and one `IDQ:` line (see [`idq-upstream-files.txt`](idq-upstream-files.txt)):
@@ -81,7 +81,7 @@ npx jest --config test/jest-e2e.json --runInBand idq-mcp
 
 It creates an admin, a member who can write in a shared space, a member who can only read it, and a restricted space. Then it checks:
 
-- that the member finds and reads nothing from the restricted space, with any of the 31 tools, including attachments whose stored space is stale and tasks linked from a task they can see;
+- that the member finds and reads nothing from the restricted space with the read tools, writes nothing in it with the write tools, and doesn't see it through attachments whose stored space is stale or through tasks linked from a task they can see;
 - that the read-only member can't write anything in the shared space;
 - that a writer creates tasks, changes their fields and links materials, and that only workspace admins change people in charge and the label vocabulary;
 - that Markdown content (headings, lists, tables, Mermaid) is written and read back correctly, and that comments refuse what the web app can't show;

@@ -362,6 +362,13 @@ describeE2E('IDQ MCP (e2e)', () => {
       const { body } = await mcp(memberKey, 'tools/list');
       const names = body.result.tools.map((t: any) => t.name).sort();
       expect(names).toEqual(EXPECTED_TOOLS);
+      // Clients ask before running tools that change existing content
+      const destructive = (name: string) =>
+        body.result.tools.find((t: any) => t.name === name).annotations
+          .destructiveHint;
+      expect(destructive('set_assignee_mapping')).toBe(true);
+      expect(destructive('update_task')).toBe(true);
+      expect(destructive('create_task')).toBe(false);
     });
   });
 
@@ -737,6 +744,7 @@ describeE2E('IDQ MCP (e2e)', () => {
       });
       expect(created.isError).toBe(false);
       expect(created.data.task.status).toBe('in_progress');
+      expect(created.data.url).toContain('/s/shared/p/print-the-flyers-');
       taskId = created.data.task.pageId;
 
       const other = await callTool(memberKey, 'create_task', {
@@ -745,6 +753,13 @@ describeE2E('IDQ MCP (e2e)', () => {
       });
       expect(other.data.task.status).toBe('todo');
       otherTaskId = other.data.task.pageId;
+
+      // Without Markdown, the sections of a new task, as on the board
+      const otherPage = await callTool(memberKey, 'get_page', {
+        page_id: otherTaskId,
+      });
+      expect(otherPage.data.content).toContain('Depends on');
+      expect(otherPage.data.content).toContain('## Steps');
 
       const board = await callTool(memberKey, 'list_tasks', {
         space_id: sharedSpaceId,
@@ -765,6 +780,7 @@ describeE2E('IDQ MCP (e2e)', () => {
 
       const page = await callTool(memberKey, 'get_page', { page_id: taskId });
       expect(page.data.content).toContain('Flyers for the open day');
+      expect(page.data.content).not.toContain('Depends on');
     });
 
     it('update_task changes the fields that are sent, and only those', async () => {
@@ -781,6 +797,7 @@ describeE2E('IDQ MCP (e2e)', () => {
         priority: 'high',
         areas: ['open-day'],
       });
+      expect(r.data.url).toContain('/s/shared/p/print-the-flyers-');
       // A name that matches a member resolves to them; any other stays a name
       expect(r.data.task.assignees).toEqual([
         { value: 'external-volunteer', name: 'External Volunteer', user: null },
@@ -810,6 +827,8 @@ describeE2E('IDQ MCP (e2e)', () => {
         { page_id: taskId },
         { page_id: taskId, status: 'archived' },
         { page_id: taskId, areas: ['not valid!', '~'] },
+        // An invalid field stops the status change too
+        { page_id: taskId, status: 'done', areas: ['~'] },
         { page_id: sharedPageId, status: 'done' },
       ];
       for (const args of attempts) {
@@ -841,6 +860,24 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect(await ids({ area: 'Open day' })).toEqual([taskId]);
       expect(await ids({ priority: 'low' })).toEqual([otherTaskId]);
       expect(await ids({ priority: 'low', mine: true })).toEqual([]);
+
+      // A filter that no label can hold finds nothing, not the whole board
+      expect(await ids({ assignee: 'Иван' })).toEqual([]);
+      expect(await ids({ area: '!!!' })).toEqual([]);
+
+      // Labels added in Docmost's label section keep their own form
+      const added = await api(member, '/pages/labels/add', {
+        pageId: otherTaskId,
+        names: ['area-open---day'],
+      });
+      expect(added.status).toBe(200);
+      expect(await ids({ area: 'open---day' })).toEqual([otherTaskId]);
+      expect(await ids({ area: 'Open day' })).toEqual([taskId]);
+      const reset = await callTool(memberKey, 'update_task', {
+        page_id: otherTaskId,
+        areas: ['Logistics'],
+      });
+      expect(reset.data.task.areas).toEqual(['logistics']);
     });
 
     it('get_task_options and get_task_settings give the values to choose from', async () => {
@@ -985,6 +1022,20 @@ describeE2E('IDQ MCP (e2e)', () => {
       });
       expect(named.isError).toBe(false);
 
+      // The values in use come from the space asked for, even for the admin
+      const ownerValue = `owner-${SECRET_WORD}`;
+      const inSecret = await callTool(adminKey, 'get_task_options', {
+        space_id: secretSpaceId,
+      });
+      expect(inSecret.data.assignees.map((a: any) => a.value)).toContain(
+        ownerValue,
+      );
+      const inShared = await callTool(adminKey, 'get_task_options', {
+        space_id: sharedSpaceId,
+      });
+      expect(inShared.isError).toBe(false);
+      expect(inShared.text).not.toContain(SECRET_WORD);
+
       const task = await callTool(memberKey, 'get_task', { page_id: taskId });
       expect(task.data.links.map((l: any) => l.id)).toEqual([pageLinkId]);
       expect(task.text).not.toContain(SECRET_WORD);
@@ -1056,6 +1107,15 @@ describeE2E('IDQ MCP (e2e)', () => {
         user: { id: readerId, name: 'Reader', avatarUrl: null },
       });
 
+      // The filter finds every value that stands for the member
+      const byReader = await callTool(memberKey, 'list_tasks', {
+        space_id: sharedSpaceId,
+        assignee: 'Reader',
+      });
+      expect(byReader.data.tasks.map((t: any) => t.pageId).sort()).toEqual(
+        [taskId, otherTaskId].sort(),
+      );
+
       const unknown = await callTool(adminKey, 'set_assignee_mapping', {
         value: 'external-volunteer',
         user_id: workspaceId,
@@ -1097,24 +1157,33 @@ describeE2E('IDQ MCP (e2e)', () => {
       const updated = await callTool(adminKey, 'update_task_settings', {
         vocabulary: custom,
       });
-      expect(updated.isError).toBe(false);
-      expect(updated.data.isDefault).toBe(false);
-      expect(updated.data.vocabulary.prefixes.status).toBe('state-');
+      try {
+        expect(updated.isError).toBe(false);
+        expect(updated.data.isDefault).toBe(false);
+        expect(updated.data.vocabulary.prefixes.status).toBe('state-');
 
-      // Labels on pages are not renamed: the tasks leave the board
-      const board = await callTool(memberKey, 'list_tasks', {
-        space_id: sharedSpaceId,
-      });
-      expect(board.data.tasks).toHaveLength(0);
+        // Labels on pages are not renamed: the tasks leave the board
+        const board = await callTool(memberKey, 'list_tasks', {
+          space_id: sharedSpaceId,
+        });
+        expect(board.data.tasks).toHaveLength(0);
 
-      const restored = await callTool(adminKey, 'update_task_settings', {
-        vocabulary,
-      });
-      expect(restored.isError).toBe(false);
-      const back = await callTool(memberKey, 'list_tasks', {
-        space_id: sharedSpaceId,
-      });
-      expect(back.data.tasks).toHaveLength(2);
+        const restored = await callTool(adminKey, 'update_task_settings', {
+          vocabulary,
+        });
+        expect(restored.isError).toBe(false);
+        const back = await callTool(memberKey, 'list_tasks', {
+          space_id: sharedSpaceId,
+        });
+        expect(back.data.tasks).toHaveLength(2);
+      } finally {
+        // Whatever failed above, the next tests start from the defaults,
+        // with no stored vocabulary
+        await sql`delete from idq_task_settings where workspace_id = ${workspaceId}`;
+      }
+      expect(
+        (await callTool(adminKey, 'get_task_settings')).data.isDefault,
+      ).toBe(true);
     });
   });
 

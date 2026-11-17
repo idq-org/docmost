@@ -29,12 +29,12 @@ Each workspace chooses its words: a prefix per field, the values of each column 
 
 ## New tasks
 
-*New task* in a column creates the page under the page that holds most tasks of the space (an index page, for instance), or at the root. The page starts with a table for what labels can't hold (deadline, dependencies), then goal, steps (a checklist) and references, in the writer's language.
+*New task* in a column creates the page under the page that holds most tasks of the space (an index page, for instance), or at the root. The page starts with a table for what labels can't hold (deadline, dependencies), then goal, steps (a checklist) and references, in the writer's language (English or Italian). The server writes these sections (`idq-task-template.ts`) whenever a task is created without content, from the board or from MCP.
 
 ## Permissions
 
 - Space readers see the board and the panels; writers and admins also move cards, edit fields, create tasks and link materials. Page-level restrictions apply as in the rest of Docmost.
-- Linked pages and files keep their own permissions: a viewer only sees, and counts, the ones they can open. The pickers only offer values from pages the user can open.
+- Linked pages and files keep their own permissions: a viewer only sees, and counts, the ones they can open. The pickers only offer values from pages of the space that the user can open.
 - Board settings and people in charge are for workspace admins.
 
 ## Linked materials
@@ -47,15 +47,15 @@ The [IDQ MCP](MCP.md) has one tool for each operation of the board, with the sam
 
 | Tool | What it does |
 |---|---|
-| `list_tasks` | the board of a space, with the filters of the web board |
+| `list_tasks` | the board of a space, with the filters of the web board, by value or by name |
 | `get_task` | fields, linked materials and "used in" of a page |
-| `get_task_options` | values in use, and the members with the value that stands for each |
-| `create_task`, `update_task` | new task in a column; status, priority, areas and people in charge |
+| `get_task_options` | values in use in the space, and the members with the value that stands for each |
+| `create_task`, `update_task` | new task in a column; status, priority, areas and people in charge, in one write |
 | `add_task_link`, `remove_task_link` | linked materials |
 | `get_task_settings`, `update_task_settings` | label vocabulary (changing it is for workspace admins) |
 | `list_assignee_mappings`, `set_assignee_mapping` | who a person-in-charge value stands for (workspace admins) |
 
-A new task has no content unless the tool passes it: the starting table and sections are written by the web app.
+A new task gets the same starting table and sections as on the board, unless the tool passes its own Markdown.
 
 ## For other IDQ features
 

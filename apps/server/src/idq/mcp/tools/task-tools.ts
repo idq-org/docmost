@@ -11,22 +11,55 @@ import {
   IdqTaskSetStatusDto,
   IdqTaskSettingsDto,
 } from '../../tasks/idq-tasks.controller';
-import { TASK_STATUSES, toLabelSlug } from '../../tasks/idq-task-fields';
+import {
+  LABEL_NAME_MAX_LENGTH,
+  LABEL_NAME_PATTERN,
+  LABEL_VALUE_MAX_LENGTH,
+  TASK_STATUSES,
+  toLabelSlug,
+} from '../../tasks/idq-task-fields';
+import { TaskAssignee } from '../../tasks/idq-task-assignees.service';
 import { toDto } from '../idq-mcp-core.service';
-import { defineTool } from './tool-context';
+import { pageId, spaceId } from './page-tools';
+import { defineTool, ToolContext } from './tool-context';
 
-const pageId = z
-  .string()
-  .min(1)
-  .describe(
-    'Page ID (UUID) or the short slug ID shown at the end of page URLs',
-  );
-const spaceId = z.string().uuid().describe('Space ID (UUID)');
 const status = z.enum(TASK_STATUSES).describe('Column of the board');
-const labelValue = z.string().min(1).max(70);
+// Values to write: the limits of IdqTaskSetFieldsDto.
+const labelValue = z.string().min(1).max(LABEL_VALUE_MAX_LENGTH);
+// Values to filter by: anything a stored label can hold.
+const filterValue = z.string().min(1).max(LABEL_NAME_MAX_LENGTH);
 
 const valueDescription =
   'A value or a name: "Mario Rossi" is stored as "mario-rossi".';
+
+/**
+ * The stored value a filter stands for. A valid label value is taken as it
+ * is, like the board's filters do (labels added in Docmost's label section
+ * keep their own form, e.g. "open---day"); anything else is written as a
+ * label ("Open day" → "open-day"). Empty when no label can hold it.
+ */
+function filterTarget(input: string): string {
+  const raw = input.trim().toLowerCase();
+  return LABEL_NAME_PATTERN.test(raw) ? raw : toLabelSlug(input);
+}
+
+/**
+ * The person-in-charge filter also matches the other values that stand for
+ * the same member: "Mario Rossi" finds a task labelled "mario" when that
+ * value resolves to Mario Rossi.
+ */
+async function assigneeMatcher(
+  input: string,
+  ctx: ToolContext,
+): Promise<(assignee: TaskAssignee) => boolean> {
+  const target = filterTarget(input);
+  if (!target) return () => false;
+  const resolve = await ctx.taskAssignees.resolver(ctx.principal.workspace.id);
+  const memberId = resolve(target).user?.id;
+  return (assignee) =>
+    assignee.value === target ||
+    (memberId !== undefined && assignee.user?.id === memberId);
+}
 
 /**
  * Task board tools. Each one calls the service behind an endpoint of
@@ -39,16 +72,23 @@ export const taskTools = [
     title: 'List tasks',
     description:
       'List the tasks on the board of a space, with status, priority, ' +
-      'areas, people in charge, next deadline and number of linked ' +
-      'materials. Optional filters, as on the board; a task with an empty ' +
-      'assignees list has nobody in charge.',
+      'areas, people in charge, next deadline, number of linked materials ' +
+      'and url. Optional filters, as on the board: pass a value as listed ' +
+      'here or by get_task_options, or a name ("Open day" finds ' +
+      '"open-day"). A task with an empty assignees list has nobody in ' +
+      'charge.',
     inputSchema: z.object({
       space_id: spaceId,
-      priority: labelValue.optional().describe('Only tasks with this priority'),
-      area: labelValue.optional().describe('Only tasks of this area'),
-      assignee: labelValue
+      priority: filterValue
         .optional()
-        .describe(`Only tasks of this person in charge. ${valueDescription}`),
+        .describe('Only tasks with this priority'),
+      area: filterValue.optional().describe('Only tasks of this area'),
+      assignee: filterValue
+        .optional()
+        .describe(
+          'Only tasks of this person in charge: a value or a name. It also ' +
+            'finds the other values that stand for the same member.',
+        ),
       mine: z
         .boolean()
         .optional()
@@ -60,14 +100,19 @@ export const taskTools = [
       const dto = await toDto(IdqTaskBoardDto, { spaceId: args.space_id });
       const board = await ctx.taskBoard.getBoard(dto.spaceId, user, workspace);
 
-      const priority = args.priority && toLabelSlug(args.priority);
-      const area = args.area && toLabelSlug(args.area);
-      const assignee = args.assignee && toLabelSlug(args.assignee);
+      // A filter that is passed always applies, even when nothing matches it.
+      const priority =
+        args.priority !== undefined ? filterTarget(args.priority) : null;
+      const area = args.area !== undefined ? filterTarget(args.area) : null;
+      const assignee =
+        args.assignee !== undefined
+          ? await assigneeMatcher(args.assignee, ctx)
+          : null;
       const tasks = board.tasks.filter(
         (task) =>
-          (!priority || task.priority === priority) &&
-          (!area || task.areas.includes(area)) &&
-          (!assignee || task.assignees.some((a) => a.value === assignee)) &&
+          (priority === null || (!!priority && task.priority === priority)) &&
+          (area === null || (!!area && task.areas.includes(area))) &&
+          (!assignee || task.assignees.some(assignee)) &&
           (!args.mine || task.assignees.some((a) => a.user?.id === user.id)),
       );
       return {
@@ -85,15 +130,16 @@ export const taskTools = [
     title: 'Get task',
     description:
       'Get the task fields of a page (status, priority, areas, people in ' +
-      'charge, next deadline), its linked materials and the tasks that link ' +
-      'it. isTask is false when the page is not a task. Use get_page for ' +
-      'the content.',
+      'charge, next deadline), its linked materials, the tasks that link ' +
+      'it and its url. isTask is false when the page is not a task. Use ' +
+      'get_page for the content.',
     inputSchema: z.object({ page_id: pageId }),
     write: false,
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
       const dto = await toDto(IdqTaskPageDto, { pageId: args.page_id });
-      return ctx.taskBoard.getPageInfo(dto.pageId, user, workspace);
+      const info = await ctx.taskBoard.getPageInfo(dto.pageId, user, workspace);
+      return { ...info, url: await ctx.core.pageUrlById(info.pageId) };
     },
   }),
 
@@ -101,9 +147,10 @@ export const taskTools = [
     name: 'get_task_options',
     title: 'Get task options',
     description:
-      'Values to choose from when editing a task: priorities, areas and ' +
-      'people in charge in use, and the workspace members with the value ' +
-      'that stands for each of them.',
+      'Values to choose from when editing a task of a space: the ' +
+      'priorities, the areas and people in charge in use in that space, ' +
+      'and the workspace members with the value that stands for each of ' +
+      'them.',
     inputSchema: z.object({ space_id: spaceId }),
     write: false,
     handler: async (args, ctx) => {
@@ -131,8 +178,10 @@ export const taskTools = [
     title: 'Create task',
     description:
       'Create a task page in a column of the board of a space, next to the ' +
-      'other tasks. Content is written in Markdown. Set priority, areas and ' +
-      'people in charge with update_task.',
+      'other tasks. Without markdown, the page gets the sections of a new ' +
+      'task, as on the board: a table with Deadline and Depends on, then ' +
+      'Goal, Steps and References, in the language of the user. Set ' +
+      'priority, areas and people in charge with update_task.',
     inputSchema: z.object({
       space_id: spaceId,
       title: z.string().min(1).max(500).describe('Task title'),
@@ -141,7 +190,10 @@ export const taskTools = [
         .string()
         .max(20000)
         .optional()
-        .describe('Content of the task page in Markdown'),
+        .describe(
+          'Content of the task page in Markdown, instead of the sections ' +
+            'of a new task',
+        ),
     }),
     write: true,
     handler: async (args, ctx) => {
@@ -152,7 +204,8 @@ export const taskTools = [
         status: args.status ?? 'todo',
         content: args.markdown,
       });
-      return ctx.taskBoard.createTask(dto, user, workspace);
+      const created = await ctx.taskBoard.createTask(dto, user, workspace);
+      return { ...created, url: await ctx.core.pageUrlById(created.page.id) };
     },
   }),
 
@@ -161,8 +214,8 @@ export const taskTools = [
     title: 'Update task',
     description:
       'Change the status, priority, areas and/or people in charge of a ' +
-      'task. Fields that are not passed stay as they are; areas and ' +
-      'assignees replace the current lists.',
+      'task, all in one write. Fields that are not passed stay as they ' +
+      'are; areas and assignees replace the current lists.',
     inputSchema: z.object({
       page_id: pageId,
       status: status.optional().describe('New column of the task'),
@@ -213,23 +266,18 @@ export const taskTools = [
           })
         : null;
 
-      if (statusDto) {
-        await ctx.taskBoard.setStatus(
-          statusDto.pageId,
-          statusDto.status,
-          user,
-          workspace,
-        );
-      }
-      if (fieldsDto) {
-        await ctx.taskBoard.setFields(
-          fieldsDto.pageId,
-          fieldsDto,
-          user,
-          workspace,
-        );
-      }
-      return ctx.taskBoard.getPageInfo(args.page_id, user, workspace);
+      const info = await ctx.taskBoard.updateTask(
+        (statusDto ?? fieldsDto).pageId,
+        {
+          status: statusDto?.status,
+          priority: fieldsDto?.priority,
+          areas: fieldsDto?.areas,
+          assignees: fieldsDto?.assignees,
+        },
+        user,
+        workspace,
+      );
+      return { ...info, url: await ctx.core.pageUrlById(info.pageId) };
     },
   }),
 
@@ -310,19 +358,7 @@ export const taskTools = [
     write: false,
     handler: async (_args, ctx) => {
       const { user, workspace } = ctx.principal;
-      const vocabulary = await ctx.taskSettings.vocabulary(workspace.id);
-      const used = await ctx.taskBoard.usedValues(
-        user,
-        workspace.id,
-        vocabulary,
-      );
-      return {
-        items: await ctx.taskAssignees.listMappings(
-          user,
-          workspace,
-          used.assignee,
-        ),
-      };
+      return { items: await ctx.taskBoard.assigneeMappings(user, workspace) };
     },
   }),
 
@@ -331,8 +367,9 @@ export const taskTools = [
     title: 'Set assignee mapping',
     description:
       'Link a person-in-charge value to a workspace member, or remove the ' +
-      'link (user_id null) to go back to matching by name. Workspace admins ' +
-      'only.',
+      'link (user_id null) to go back to matching by name. It changes who ' +
+      'is in charge of every task with that value, in the whole workspace. ' +
+      'Workspace admins only.',
     inputSchema: z.object({
       value: labelValue.describe(`Person-in-charge value. ${valueDescription}`),
       user_id: z
@@ -342,6 +379,7 @@ export const taskTools = [
         .describe('Member the value stands for, or null to remove the link'),
     }),
     write: true,
+    destructive: true,
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
       const dto = await toDto(IdqTaskAssigneeDto, {

@@ -437,6 +437,14 @@ describeE2E('IDQ task board (e2e)', () => {
       fieldsTaskId = res.data.task.pageId;
     });
 
+    it('a task created without content gets the sections of a task', async () => {
+      const [page] = await sql`
+        select content::text as content from pages where id = ${fieldsTaskId}`;
+      expect(page.content).toContain('Depends on');
+      expect(page.content).toContain('First step');
+      expect(page.content).toContain('taskItem');
+    });
+
     it('a writer sets priority, areas and people in charge', async () => {
       const res = await api(member, '/idq/tasks/set-fields', {
         pageId: fieldsTaskId,
