@@ -11,7 +11,9 @@ name: Sync upstream
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    # UTC, away from the start of the hour, when GitHub delays or drops
+    # scheduled runs.
+    - cron: "43 4 * * *"
   workflow_dispatch:
 
 # Used only by the GITHUB_TOKEN fallback.
