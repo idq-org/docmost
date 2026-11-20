@@ -34,13 +34,16 @@ import {
   createYdocFromJson,
   getAttachmentIds,
   getProsemirrorContent,
-  isAttachmentNode,
+  replaceAttachmentIds,
   removeMarkTypeFromDoc,
 } from '../../../common/helpers/prosemirror/utils';
 import {
   htmlToJson,
   jsonToNode,
   jsonToText,
+  parseDocumentJson,
+  templateExtensions,
+  tiptapExtensions,
 } from 'src/collaboration/collaboration.util';
 import { CopyPageMapEntry } from '../dto/duplicate-page.dto';
 import { Node as PMNode } from '@tiptap/pm/model';
@@ -825,6 +828,30 @@ export class PageService {
 
     const copiedAttachmentIds = new Map<string, string>();
 
+    const pageAttachmentIds = new Map<string, string[]>();
+    const referencedAttachmentIds = new Set<string>();
+    for (const page of pages) {
+      const ids = getAttachmentIds(getProsemirrorContent(page.content));
+      pageAttachmentIds.set(page.id, ids);
+      ids.forEach((id) => referencedAttachmentIds.add(id));
+      const coverId = getCoverAttachmentId(page.coverPhoto);
+      if (coverId) referencedAttachmentIds.add(coverId);
+    }
+    const referencedAttachments =
+      referencedAttachmentIds.size > 0
+        ? await this.db
+            .selectFrom('attachments')
+            .selectAll()
+            .where('id', 'in', Array.from(referencedAttachmentIds))
+            .where('workspaceId', '=', rootPage.workspaceId)
+            .execute()
+        : [];
+    const ownedAttachmentIds = new Set(
+      referencedAttachments
+        .filter((attachment) => pageMap.has(attachment.pageId))
+        .map((attachment) => attachment.id),
+    );
+
     const insertablePages: InsertablePage[] = await Promise.all(
       pages.map(async (page) => {
         const pageContent = getProsemirrorContent(page.content);
@@ -833,39 +860,19 @@ export class PageService {
         const doc = jsonToNode(pageContent);
         const prosemirrorDoc = removeMarkTypeFromDoc(doc, 'comment');
 
-        const attachmentIds = getAttachmentIds(prosemirrorDoc.toJSON());
+        const attachmentIds = pageAttachmentIds.get(page.id);
 
-        if (attachmentIds.length > 0) {
-          attachmentIds.forEach((attachmentId: string) => {
+        attachmentIds
+          .filter((attachmentId: string) =>
+            ownedAttachmentIds.has(attachmentId),
+          )
+          .forEach((attachmentId: string) => {
             // pages that show the same file share one copy of it
-            const newAttachmentId = copiedAttachmentIds.get(attachmentId) ?? uuid7();
-            copiedAttachmentIds.set(attachmentId, newAttachmentId);
-
-            prosemirrorDoc.descendants((node: PMNode) => {
-              if (isAttachmentNode(node.type.name)) {
-                if (node.attrs.attachmentId === attachmentId) {
-                  //@ts-ignore
-                  node.attrs.attachmentId = newAttachmentId;
-
-                  if (node.attrs.src) {
-                    //@ts-ignore
-                    node.attrs.src = node.attrs.src.replace(
-                      attachmentId,
-                      newAttachmentId,
-                    );
-                  }
-                  if (node.attrs.src) {
-                    //@ts-ignore
-                    node.attrs.src = node.attrs.src.replace(
-                      attachmentId,
-                      newAttachmentId,
-                    );
-                  }
-                }
-              }
-            });
+            copiedAttachmentIds.set(
+              attachmentId,
+              copiedAttachmentIds.get(attachmentId) ?? uuid7(),
+            );
           });
-        }
 
         const coverPhoto = remapCopiedCover(page.coverPhoto, copiedAttachmentIds, uuid7);
 
@@ -921,7 +928,10 @@ export class PageService {
           }
         });
 
-        const prosemirrorJson = prosemirrorDoc.toJSON();
+        const prosemirrorJson = replaceAttachmentIds(
+          prosemirrorDoc.toJSON(),
+          copiedAttachmentIds,
+        );
 
         // Add "Copy of " prefix to the root page title only for duplicates in same space
         let title = page.title;
@@ -970,7 +980,6 @@ export class PageService {
           spaceId,
           workspaceId: rootPage.workspaceId,
           writerId: authUser.id,
-          onlySpaceMembers: !isDuplicateInSameSpace,
         },
         trx,
       );
@@ -1020,16 +1029,8 @@ export class PageService {
     });
 
     //TODO: best to handle this in a queue
-    const attachmentsIds = Array.from(copiedAttachmentIds.keys());
-    if (attachmentsIds.length > 0) {
-      const attachments = await this.db
-        .selectFrom('attachments')
-        .selectAll()
-        .where('id', 'in', attachmentsIds)
-        .where('workspaceId', '=', rootPage.workspaceId)
-        .execute();
-
-      for (const attachment of attachments) {
+    if (copiedAttachmentIds.size > 0) {
+      for (const attachment of referencedAttachments) {
         try {
           // only files owned by a copied page are copied, and they go to that page's copy
           const owner = pageMap.get(attachment.pageId);
@@ -1059,7 +1060,7 @@ export class PageService {
                 fileSize: attachment.fileSize,
                 mimeType: attachment.mimeType,
                 fileExt: attachment.fileExt,
-                creatorId: attachment.creatorId,
+                creatorId: authUser.id,
                 workspaceId: attachment.workspaceId,
                 pageId: newPageId,
                 spaceId: spaceId,
@@ -1382,20 +1383,22 @@ export class PageService {
     await this.pageRepo.removePage(pageId, userId, workspaceId);
   }
 
-  private async parseProsemirrorContent(
+  async parseProsemirrorContent(
     content: string | object,
     format: ContentFormat,
+    context: 'page' | 'template' = 'page',
   ): Promise<any> {
+    const extensions = context === 'template' ? templateExtensions : tiptapExtensions;
     let prosemirrorJson: any;
 
     switch (format) {
       case 'markdown': {
         const html = await markdownToHtml(content as string);
-        prosemirrorJson = htmlToJson(html as string);
+        prosemirrorJson = htmlToJson(html as string, extensions);
         break;
       }
       case 'html': {
-        prosemirrorJson = htmlToJson(content as string);
+        prosemirrorJson = htmlToJson(content as string, extensions);
         break;
       }
       case 'json':
@@ -1406,12 +1409,10 @@ export class PageService {
     }
 
     try {
-      jsonToNode(prosemirrorJson);
+      return parseDocumentJson(prosemirrorJson, extensions).content;
     } catch (err) {
       throw new BadRequestException('Invalid content format');
     }
-
-    return prosemirrorJson;
   }
 
   /**

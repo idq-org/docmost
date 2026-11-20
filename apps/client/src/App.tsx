@@ -4,7 +4,7 @@ import Layout from "@/components/layouts/global/layout.tsx";
 import WorkspaceLocaleLayout from "@/features/workspace/components/workspace-locale-layout.tsx";
 import { Error404 } from "@/components/ui/error-404.tsx";
 import { MAIN_CONTENT_ID } from "@/components/ui/skip-to-main.tsx";
-import { isCloud } from "@/lib/config.ts";
+import { isBetaBaseForms, isCloud } from "@/lib/config.ts";
 import { lazyWithPrefetch, prefetchLazyComponents } from "@/lib/lazy-prefetch.ts";
 import { useTranslation } from "react-i18next";
 import { useRedirectToCloudSelect } from "@/ee/hooks/use-redirect-to-cloud-select.tsx";
@@ -61,6 +61,9 @@ const PublicSpaceDirectoryPage = lazyWithPrefetch(
   () => import("@/pages/public-space/public-space-directory-page.tsx"),
 );
 const SpacesPage = lazyWithPrefetch(() => import("@/pages/spaces/spaces.tsx"));
+const PublicFormPage = lazyWithPrefetch(
+  () => import("@/ee/base/pages/public-form-page.tsx"),
+);
 const MfaChallengePage = lazyWithPrefetch(() =>
   import("@/ee/mfa/pages/mfa-challenge-page").then((m) => ({
     default: m.MfaChallengePage,
@@ -90,6 +93,7 @@ const TemplateEditor = lazyWithPrefetch(
   () => import("@/ee/template/pages/template-editor"),
 );
 const FavoritesPage = lazyWithPrefetch(() => import("@/pages/favorites/favorites-page"));
+const UserProfilePage = lazyWithPrefetch(() => import("@/pages/user/user-profile-page"));
 const AiChat = lazyWithPrefetch(() => import("@/ee/ai-chat/pages/ai-chat.tsx"));
 const VerifyEmail = lazyWithPrefetch(() => import("@/ee/pages/verify-email.tsx"));
 const LabelPage = lazyWithPrefetch(() => import("@/pages/label/label-page"));
@@ -150,6 +154,10 @@ export default function App() {
             />
           </Route>
 
+          {isBetaBaseForms() && (
+            <Route path={"/forms/:formKey"} element={<PublicFormPage />} />
+          )}
+
           <Route
             path="*"
             element={
@@ -190,6 +198,7 @@ export default function App() {
           <Route path={"/ai/chat/:chatId"} element={<AiChat />} />
           <Route path={"/spaces"} element={<SpacesPage />} />
           <Route path={"/favorites"} element={<FavoritesPage />} />
+          <Route path={"/people/:userId"} element={<UserProfilePage />} />
           <Route path={"/labels/:labelName"} element={<LabelPage />} />
           <Route path={"/templates"} element={<TemplateList />} />
           <Route

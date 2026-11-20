@@ -151,6 +151,12 @@ export default function GlobalAppShell({
         {/* IDQ: source code link (AGPL-3.0) */}
         <SourceLink compact />
       </AppShell.Navbar>
+      <Box
+        hiddenFrom="sm"
+        className={classes.navbarOverlay}
+        mod={{ opened: mobileOpened }}
+        onClick={toggleMobile}
+      />
       <AppShell.Main
         id={MAIN_CONTENT_ID}
         tabIndex={-1}

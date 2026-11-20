@@ -390,10 +390,8 @@ export function icon(name: string) {
 export function sanitizeUrl(url: string | undefined): string {
   if (!url) return "";
 
-  const sanitized = braintreeSanitizeUrl(url);
-
-  // Return empty string instead of "about:blank"
-  return sanitized === "about:blank" ? "" : sanitized;
+  // Checked and kept as given, since the sanitizer's output decodes percent-escapes.
+  return braintreeSanitizeUrl(url) === "about:blank" ? "" : url.trim();
 }
 
 export function isHttpUrl(url: string | null | undefined): boolean {
@@ -410,6 +408,13 @@ export function isInternalFileUrl(url: string | undefined): boolean {
   if (!url) return false;
   const normalized = url.trim();
   return normalized.startsWith("/api/files/") || normalized.startsWith("/files/");
+}
+
+// app file urls, plus the files/ path an export with attachments points to
+export function renderableFileUrl(url: string | undefined): string {
+  return isInternalFileUrl(url) || url?.trim().startsWith("files/")
+    ? sanitizeUrl(url)
+    : "";
 }
 
 const alphabet = "abcdefghijklmnopqrstuvwxyz";
