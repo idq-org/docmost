@@ -66,10 +66,10 @@ The task tools aren't part of the Docmost MCP: they give access to the [IDQ task
 - The task tools (`mcp/tools/task-tools.ts`) call the IDQ task services behind the endpoints of `IdqTasksController`, with the same DTOs, so they run the same checks as the board. Those services have their own label and link queries (`apps/server/src/idq/tasks/`), filtered by space membership and by the core page permissions.
 - The IDQ migrations run at startup, after Docmost's, with their own tracking table (`idq_kysely_migration`). Migrations coming from upstream never end up in the middle of ours.
 - Client: `apps/client/src/idq/mcp/`. The route is in `apps/client/src/idq/routes.tsx` and the menu item in `apps/client/src/idq/settings-nav.ts`. The Italian translations are in `apps/client/src/idq/mcp/i18n.ts`, not in `public/locales`, so they don't conflict with Docmost's updates.
-- Three Docmost files change, each with one import and one `IDQ:` line (see [`idq-upstream-files.txt`](idq-upstream-files.txt)):
-  - `app.module.ts` registers `IdqModule`;
-  - `App.tsx` adds our routes;
-  - `settings-sidebar.tsx` adds our menu items.
+- The MCP needs three Docmost files, each changed only by `IDQ:` hook lines shared with the other IDQ features (see [`idq-upstream-files.txt`](idq-upstream-files.txt)):
+  - `app.module.ts` registers `IdqModule` (one import, one line);
+  - `App.tsx` adds our routes (one import, one line in the app layout and one in the settings);
+  - `settings-sidebar.tsx` adds our menu items (one import, one line).
 
 ## Development
 
