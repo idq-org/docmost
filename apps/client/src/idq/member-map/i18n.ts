@@ -75,8 +75,10 @@ addTranslations("it-IT", {
     "Fai sapere agli altri soci in che provincia vivi: solo la provincia, mai il comune o l'indirizzo. La mappa la vede solo chi ha fatto l'accesso al workspace.",
   "On the map": "Sulla mappa",
   "Don't show me": "Non mostrarmi",
-  "You are not on the map, and your province is not kept.":
-    "Non compari sulla mappa, e la tua provincia non viene salvata.",
+  "You are not on the map, your province is not kept, and admins can't put you on it.":
+    "Non compari sulla mappa, la tua provincia non viene salvata e gli admin non possono metterti sulla mappa.",
+  "You haven't chosen yet. Until you do, an admin can put you on the map, if you gave your consent. Saving any choice here, \"Don't show me\" included, means only you can change it.":
+    "Non hai ancora scelto. Finché non lo fai, un admin può metterti sulla mappa, se gli hai dato il consenso. Se salvi una scelta qui, «Non mostrarmi» compreso, potrai cambiarla solo tu.",
   "Count me, without my name": "Contami, senza nome",
   "You add one to the members of your province.":
     "Conti uno in più fra i soci della tua provincia.",
@@ -108,8 +110,8 @@ addTranslations("it-IT", {
   "Each member chooses in their own profile.":
     "Ogni socio sceglie dal proprio profilo.",
   "Failed to load the members": "Caricamento dei soci non riuscito",
-  "Put on the map only the members who gave their consent. They see that an admin did it, and can change or remove it in their profile. What a member chose in their profile can't be changed here.":
-    "Metti sulla mappa solo i soci che hanno dato il consenso. Vedranno che l'ha fatto un admin e potranno cambiare o togliere la scelta dal loro profilo. Quello che un socio ha scelto dal profilo qui non si può cambiare.",
+  "Put on the map only the members who gave their consent. They aren't notified: they see it, with your name, in their profile and on the map page, and can change or remove it there. What a member decided in their profile can't be changed here, and you don't see which choice they made.":
+    "Metti sulla mappa solo i soci che hanno dato il consenso. Non ricevono avvisi: lo vedono, con il tuo nome, nel loro profilo e nella pagina della mappa, e lì possono cambiare o togliere la scelta. Quello che un socio ha deciso dal profilo qui non si può cambiare, e non vedi quale scelta ha fatto.",
   "Search by name or email": "Cerca per nome o email",
   "Import from a file": "Importa da un file",
   "Discard changes": "Annulla le modifiche",
@@ -122,6 +124,8 @@ addTranslations("it-IT", {
     "Salvato: {{count}} socio. {{skipped}} lasciati com'erano: nel frattempo hanno scelto dal profilo, o non sono più attivi.",
   "Saved: {{count}} members. {{skipped}} left as they were: in the meantime they chose in their profile, or are no longer active._other":
     "Salvati: {{count}} soci. {{skipped}} lasciati com'erano: nel frattempo hanno scelto dal profilo, o non sono più attivi.",
+  "Failed to save all the changes. Save again to send the rest.":
+    "Non è stato possibile salvare tutte le modifiche. Salva di nuovo per inviare le altre.",
   Member_idq: "Socio",
   "Set by": "Impostato da",
   "Not on the map": "Non sulla mappa",

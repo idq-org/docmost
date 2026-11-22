@@ -1,8 +1,15 @@
 import { IDQ_PROVINCES } from './idq-provinces';
 
-/** What a member chooses in their profile. `hidden` means no row at all. */
+/** What a member chooses in their profile. */
 export const MEMBER_VISIBILITIES = ['hidden', 'count', 'named'] as const;
 export type MemberVisibility = (typeof MEMBER_VISIBILITIES)[number];
+
+/**
+ * Who decided where a member is on the map: the member in their profile, or
+ * an admin (null: nobody yet). Whatever the member decides, "Don't show me"
+ * included, admins can no longer change it.
+ */
+export type ChosenBy = 'member' | 'admin';
 
 export const PROVINCE_CODES: readonly string[] = IDQ_PROVINCES.map(
   (p) => p.code,
@@ -13,23 +20,31 @@ export function isProvinceCode(code: unknown): code is string {
   return typeof code === 'string' && REGION_OF.has(code);
 }
 
+/** Where the current user is on the map, as they see it in their profile. */
 export type MemberLocation = {
   provinceCode: string | null;
   visibility: MemberVisibility;
-  /** The admin who put the member on the map; null if the member chose. */
+  chosenBy: ChosenBy | null;
+  /** The admin who put the member on the map (chosenBy admin), or null. */
   setBy: { id: string; name: string | null } | null;
 };
 
-export const NOT_ON_MAP: MemberLocation = {
+/** Nobody decided yet: not on the map, and admins may still set it. */
+export const NOT_DECIDED: MemberLocation = {
   provinceCode: null,
   visibility: 'hidden',
+  chosenBy: null,
   setBy: null,
 };
 
 /**
- * A workspace member, as admins see them in the map management page. What a
- * member chose in their profile is theirs: admins only learn that they chose
- * (chosenBy "member"), not their province or visibility, which stay null.
+ * A workspace member, as admins see them in the map management page.
+ *
+ * What a member decided in their profile is theirs: admins only learn that
+ * the member decided (chosenBy "member"), never which choice. "Don't show
+ * me", "Count me" and "Show my name" all look the same, with province,
+ * visibility, setByName and updatedAt null. The one exception is the admin's
+ * own row, which they see and can change (editable).
  */
 export type AdminMemberRow = {
   id: string;
@@ -38,8 +53,10 @@ export type AdminMemberRow = {
   avatarUrl: string | null;
   provinceCode: string | null;
   visibility: MemberVisibility | null;
-  /** member: chosen in the profile; admin: set by an admin; null: not on the map */
-  chosenBy: 'member' | 'admin' | null;
+  /** member: decided in the profile; admin: set by an admin; null: nobody decided */
+  chosenBy: ChosenBy | null;
+  /** Whether the admin who lists the members can change this row. */
+  editable: boolean;
   setByName: string | null;
   updatedAt: Date | null;
 };

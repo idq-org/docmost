@@ -9,13 +9,33 @@
  * Without IDQ_E2E_URL the test is skipped.
  */
 import * as postgres from 'postgres';
+import { CamelCasePlugin, Kysely } from 'kysely';
+import { PostgresJSDialect } from 'kysely-postgres-js';
+import { IdqMemberMapService } from '../src/idq/member-map/idq-member-map.service';
 
 const BASE = process.env.IDQ_E2E_URL;
 const DB_URL = process.env.IDQ_E2E_DATABASE_URL;
 const describeE2E = BASE && DB_URL ? describe : describe.skip;
 
 const PASSWORD = 'idq-e2e-password-123';
-const NOT_ON_MAP = { provinceCode: null, visibility: 'hidden', setBy: null };
+// Nobody decided: not on the map, and admins may still set it
+const NOT_DECIDED = {
+  provinceCode: null,
+  visibility: 'hidden',
+  chosenBy: null,
+  setBy: null,
+};
+// The member chose "Don't show me": remembered, without the province
+const HIDDEN_BY_MEMBER = { ...NOT_DECIDED, chosenBy: 'member' };
+const HIDDEN_ROW = { province_code: null, visibility: 'hidden' };
+
+async function waitFor(check: () => Promise<boolean>, timeoutMs = 10000) {
+  const start = Date.now();
+  while (!(await check())) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor: timeout');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 
 type Session = { cookie?: string; bearer?: string };
 type Member = { session: Session; id: string; name: string; email: string };
@@ -105,8 +125,15 @@ describeE2E('IDQ members map (e2e)', () => {
     return rows[0] ?? null;
   }
 
+  async function storedChosenBy(member: Member) {
+    const [row] = await sql`
+      select chosen_by, set_by_id from idq_member_locations
+      where user_id = ${member.id}`;
+    return row ?? null;
+  }
+
   beforeAll(async () => {
-    sql = postgres(DB_URL!, { max: 2, onnotice: () => {} });
+    sql = postgres(DB_URL!, { max: 3, onnotice: () => {} });
 
     const setup = await api(null, '/auth/setup', {
       workspaceName: 'IDQ member map test',
@@ -163,7 +190,7 @@ describeE2E('IDQ members map (e2e)', () => {
     it('is not set for a new member: nobody is on the map by default', async () => {
       const me = await api(elena.session, '/idq/member-map/me');
       expect(me.status).toBe(200);
-      expect(me.data).toEqual(NOT_ON_MAP);
+      expect(me.data).toEqual(NOT_DECIDED);
       expect((await map()).data.totals).toEqual({
         members: 0,
         provinces: 0,
@@ -177,11 +204,13 @@ describeE2E('IDQ members map (e2e)', () => {
       expect(set.data).toEqual({
         provinceCode: 'BO',
         visibility: 'named',
+        chosenBy: 'member',
         setBy: null,
       });
       expect((await api(ada.session, '/idq/member-map/me')).data).toEqual({
         provinceCode: 'BO',
         visibility: 'named',
+        chosenBy: 'member',
         setBy: null,
       });
 
@@ -189,6 +218,7 @@ describeE2E('IDQ members map (e2e)', () => {
       expect(changed.data).toEqual({
         provinceCode: 'FC',
         visibility: 'count',
+        chosenBy: 'member',
         setBy: null,
       });
       expect(await storedRow(ada)).toEqual({
@@ -196,13 +226,14 @@ describeE2E('IDQ members map (e2e)', () => {
         visibility: 'count',
       });
 
-      // Leaving the map forgets the province
+      // Leaving the map forgets the province, but remembers the choice
       const removed = await setLocation(ada, 'hidden', 'FC');
-      expect(removed.data).toEqual(NOT_ON_MAP);
-      expect(await storedRow(ada)).toBeNull();
+      expect(removed.data).toEqual(HIDDEN_BY_MEMBER);
+      expect(await storedRow(ada)).toEqual(HIDDEN_ROW);
       expect((await api(ada.session, '/idq/member-map/me')).data).toEqual(
-        NOT_ON_MAP,
+        HIDDEN_BY_MEMBER,
       );
+      expect((await map()).data.totals.members).toBe(0);
     });
 
     it('needs a valid province and visibility', async () => {
@@ -211,7 +242,7 @@ describeE2E('IDQ members map (e2e)', () => {
       expect((await setLocation(ada, 'count', 'XX')).status).toBe(400);
       expect((await setLocation(ada, 'count', 'Bologna')).status).toBe(400);
       expect((await setLocation(ada, 'public', 'BO')).status).toBe(400);
-      expect(await storedRow(ada)).toBeNull();
+      expect(await storedRow(ada)).toEqual(HIDDEN_ROW);
     });
 
     it("is only the user's own", async () => {
@@ -220,7 +251,7 @@ describeE2E('IDQ members map (e2e)', () => {
       const me = await api(elena.session, '/idq/member-map/me', {
         userId: bruno.id,
       });
-      expect(me.data).toEqual(NOT_ON_MAP);
+      expect(me.data).toEqual(NOT_DECIDED);
       await api(elena.session, '/idq/member-map/me/update', {
         userId: bruno.id,
         visibility: 'hidden',
@@ -296,21 +327,65 @@ describeE2E('IDQ members map (e2e)', () => {
       expect(text).not.toContain(dario.id);
       expect(text).not.toContain(elena.id);
     });
+
+    it('erases the rows of deleted users in the hourly sweep', async () => {
+      // Docmost only soft-deletes users: the row is still there
+      expect(await storedRow(elena)).toEqual({
+        province_code: 'RM',
+        visibility: 'named',
+      });
+      // The sweep runs hourly (@Interval): run it directly, on this database
+      const db = new Kysely<any>({
+        dialect: new PostgresJSDialect({
+          postgres: postgres(DB_URL!, { max: 1, onnotice: () => {} }),
+        }),
+        plugins: [new CamelCasePlugin()],
+      });
+      try {
+        const service = new IdqMemberMapService(db);
+        expect(await service.deleteLocationsOfDeletedUsers()).toBe(1);
+        expect(await service.deleteLocationsOfDeletedUsers()).toBe(0);
+      } finally {
+        await db.destroy();
+      }
+      expect(await storedRow(elena)).toBeNull();
+      // Deactivated users keep theirs, and everyone else too
+      expect(await storedRow(dario)).toEqual({
+        province_code: 'RM',
+        visibility: 'named',
+      });
+      expect((await map(ada.session)).data.totals.members).toBe(3);
+    });
   });
 
   describe('admin management', () => {
     let adminId: string;
     let fabio: Member;
     let gina: Member;
+    // Hana chooses "Don't show me"; Ivo decides while an admin is saving
+    let hana: Member;
+    let ivo: Member;
 
     async function adminUpdate(session: Session, members: object[]) {
       return api(session, '/idq/member-map/admin/update', { members });
+    }
+
+    async function adminList() {
+      const { status, data } = await api(
+        admin,
+        '/idq/member-map/admin/members',
+      );
+      expect(status).toBe(200);
+      return Object.fromEntries(data.map((m: { id: string }) => [m.id, m]));
     }
 
     beforeAll(async () => {
       adminId = (await api(admin, '/users/me')).data.user.id;
       fabio = await invite('fabio.consenso@idq.test', 'Fabio Consenso');
       gina = await invite('gina.consenso@idq.test', 'Gina Consenso');
+      hana = await invite('hana.riservata@idq.test', 'Hana Riservata');
+      ivo = await invite('ivo.ritardo@idq.test', 'Ivo Ritardo');
+      await setLocation(hana, 'hidden');
     }, 30000);
 
     it('is for admins only', async () => {
@@ -328,16 +403,10 @@ describeE2E('IDQ members map (e2e)', () => {
     });
 
     it('lists the active members, with who set their province', async () => {
-      const { status, data } = await api(
-        admin,
-        '/idq/member-map/admin/members',
-      );
-      expect(status).toBe(200);
-      const byId = Object.fromEntries(
-        data.map((m: { id: string }) => [m.id, m]),
-      );
-      // What members chose themselves isn't shown, not even to admins
-      for (const member of [ada, bruno]) {
+      const byId = await adminList();
+      // What members chose themselves isn't shown, not even to admins: named
+      // (Ada), counted (Bruno) and "Don't show me" (Hana) look the same
+      for (const member of [ada, bruno, hana]) {
         expect(byId[member.id]).toEqual({
           id: member.id,
           name: member.name,
@@ -346,6 +415,7 @@ describeE2E('IDQ members map (e2e)', () => {
           provinceCode: null,
           visibility: null,
           chosenBy: 'member',
+          editable: false,
           setByName: null,
           updatedAt: null,
         });
@@ -354,6 +424,7 @@ describeE2E('IDQ members map (e2e)', () => {
         provinceCode: null,
         visibility: 'hidden',
         chosenBy: null,
+        editable: true,
       });
       // Deactivated and deleted users aren't listed
       expect(byId[dario.id]).toBeUndefined();
@@ -371,6 +442,7 @@ describeE2E('IDQ members map (e2e)', () => {
       expect((await api(fabio.session, '/idq/member-map/me')).data).toEqual({
         provinceCode: 'RM',
         visibility: 'named',
+        chosenBy: 'admin',
         setBy: { id: adminId, name: 'Admin' },
       });
       const [row] = await sql`
@@ -413,6 +485,150 @@ describeE2E('IDQ members map (e2e)', () => {
       expect(await storedRow(bruno)).toEqual({
         province_code: 'BO',
         visibility: 'count',
+      });
+    });
+
+    it('never puts on the map a member who chose "Don\'t show me"', async () => {
+      const { data } = await adminUpdate(admin, [
+        { userId: hana.id, visibility: 'named', provinceCode: 'TO' },
+      ]);
+      expect(data).toEqual({
+        updated: 0,
+        skipped: [{ userId: hana.id, reason: 'chosen-by-member' }],
+      });
+      expect(await storedRow(hana)).toEqual(HIDDEN_ROW);
+      expect((await api(hana.session, '/idq/member-map/me')).data).toEqual(
+        HIDDEN_BY_MEMBER,
+      );
+      const { data: mapData, text } = await map(ada.session);
+      expect(mapData.provinces.map((p: { code: string }) => p.code)).toEqual([
+        'BO',
+        'FC',
+        'NA',
+        'RM',
+      ]);
+      expect(text).not.toContain(hana.id);
+    });
+
+    it("keeps an admin's row the admin's, even without its admin", async () => {
+      // What ON DELETE SET NULL would do if the admin's user row were deleted
+      await sql`
+        update idq_member_locations set set_by_id = null
+        where user_id = ${gina.id}`;
+      expect((await api(gina.session, '/idq/member-map/me')).data).toEqual({
+        provinceCode: 'NA',
+        visibility: 'count',
+        chosenBy: 'admin',
+        setBy: null,
+      });
+      expect((await adminList())[gina.id]).toMatchObject({
+        provinceCode: 'NA',
+        chosenBy: 'admin',
+        editable: true,
+        setByName: null,
+      });
+      // ...so admins can still change it
+      const { data } = await adminUpdate(admin, [
+        { userId: gina.id, visibility: 'count', provinceCode: 'NA' },
+      ]);
+      expect(data).toEqual({ updated: 1, skipped: [] });
+      expect(await storedChosenBy(gina)).toEqual({
+        chosen_by: 'admin',
+        set_by_id: adminId,
+      });
+    });
+
+    it("makes an admin's own row their own choice, which they see", async () => {
+      const own: Member = {
+        session: admin,
+        id: adminId,
+        name: 'Admin',
+        email: 'admin@idq.test',
+      };
+      const set = await adminUpdate(admin, [
+        { userId: adminId, visibility: 'named', provinceCode: 'PD' },
+      ]);
+      expect(set.data).toEqual({ updated: 1, skipped: [] });
+      expect(await storedChosenBy(own)).toEqual({
+        chosen_by: 'member',
+        set_by_id: null,
+      });
+      expect((await api(admin, '/idq/member-map/me')).data).toEqual({
+        provinceCode: 'PD',
+        visibility: 'named',
+        chosenBy: 'member',
+        setBy: null,
+      });
+      // In the list the admin sees their own choice, and can change it
+      expect((await adminList())[adminId]).toMatchObject({
+        provinceCode: 'PD',
+        visibility: 'named',
+        chosenBy: 'member',
+        editable: true,
+        setByName: null,
+      });
+
+      const changed = await adminUpdate(admin, [
+        { userId: adminId, visibility: 'count', provinceCode: 'VE' },
+      ]);
+      expect(changed.data).toEqual({ updated: 1, skipped: [] });
+      expect(await storedRow(own)).toEqual({
+        province_code: 'VE',
+        visibility: 'count',
+      });
+
+      // "Not on the map" is remembered as their choice, like in the profile
+      const hidden = await adminUpdate(admin, [
+        { userId: adminId, visibility: 'hidden' },
+      ]);
+      expect(hidden.data).toEqual({ updated: 1, skipped: [] });
+      expect(await storedRow(own)).toEqual(HIDDEN_ROW);
+      expect(await storedChosenBy(own)).toEqual({
+        chosen_by: 'member',
+        set_by_id: null,
+      });
+    });
+
+    it('keeps the choice of a member who decides while an admin saves', async () => {
+      const [{ workspace_id: workspaceId }] = await sql`
+        select workspace_id from users where id = ${ivo.id}`;
+      // Ivo's choice, not committed yet: the admin's save can't see it
+      const member = await sql.reserve();
+      try {
+        await member`begin`;
+        await member`
+          insert into idq_member_locations
+            (user_id, workspace_id, province_code, visibility, chosen_by)
+          values (${ivo.id}, ${workspaceId}, null, 'hidden', 'member')`;
+
+        const saving = adminUpdate(admin, [
+          { userId: ivo.id, visibility: 'named', provinceCode: 'TO' },
+        ]);
+        // The admin's insert waits for Ivo's transaction...
+        await waitFor(async () => {
+          const waiting = await sql`
+            select 1 from pg_stat_activity
+            where wait_event_type = 'Lock'
+              and query ilike 'insert into "idq_member_locations"%'`;
+          return waiting.length > 0;
+        });
+        // ...which commits first: the admin's write must not override it
+        await member`commit`;
+
+        const { status, data } = await saving;
+        expect(status).toBe(200);
+        expect(data).toEqual({
+          updated: 0,
+          skipped: [{ userId: ivo.id, reason: 'chosen-by-member' }],
+        });
+      } finally {
+        await member`rollback`.catch(() => {});
+        member.release();
+      }
+      expect(await storedRow(ivo)).toEqual(HIDDEN_ROW);
+      expect(await storedChosenBy(ivo)).toEqual({
+        chosen_by: 'member',
+        set_by_id: null,
       });
     });
 

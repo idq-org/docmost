@@ -64,15 +64,23 @@ export interface IdqTaskAssignees {
   updatedAt: Generated<Timestamp>;
 }
 
-/** count: only in the counts; named: with name and avatar. */
-export type IdqMemberVisibility = 'count' | 'named';
+/**
+ * hidden: the member chose "Don't show me" (no province); count: only in the
+ * counts; named: with name and avatar.
+ */
+export type IdqMemberVisibility = 'hidden' | 'count' | 'named';
+
+/** Who decided the row: the member in their profile, or an admin. */
+export type IdqMemberChosenBy = 'member' | 'admin';
 
 export interface IdqMemberLocations {
   userId: string;
   workspaceId: string;
-  provinceCode: string;
+  /** null exactly when visibility is hidden */
+  provinceCode: string | null;
   visibility: IdqMemberVisibility;
-  /** null: the member chose; otherwise the admin who set it */
+  chosenBy: IdqMemberChosenBy;
+  /** The admin who set the row (chosenBy admin); null for the member's own */
   setById: string | null;
   createdAt: Generated<Timestamp>;
   updatedAt: Generated<Timestamp>;

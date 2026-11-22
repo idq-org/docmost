@@ -7,7 +7,7 @@ import { IAdminMember, MemberVisibility } from "../types";
 
 /** Parses CSV as Excel writes it: "," or ";" (Italian Excel), quotes, BOM. */
 export function parseCsv(text: string): string[][] {
-  const source = text.replace(/^﻿/, "");
+  const source = text.replace(/^\uFEFF/, "");
   const firstLine = source.split(/\r?\n/, 1)[0] ?? "";
   const count = (ch: string) => firstLine.split(ch).length - 1;
   const delimiter = count(";") > count(",") ? ";" : ",";
@@ -55,7 +55,7 @@ export function parseCsv(text: string): string[][] {
 function normalize(value: string): string {
   return value
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
@@ -179,8 +179,11 @@ export type ImportSkip = {
 export type ImportPlan = { changes: ImportChange[]; skips: ImportSkip[] };
 
 /**
- * Matches the rows to the workspace members. Members who chose in their
- * profile are left as they are; the server checks it again when saving.
+ * Matches the rows to the workspace members. Members who decided in their
+ * profile are left as they are (the admin's own row excepted, as on the
+ * page); the server checks it again when saving. Only the first valid row of
+ * an email counts: a row left out, e.g. for a typo in the province, doesn't
+ * stop a corrected row further down.
  */
 export function planImport(
   rows: readonly ImportRow[],
@@ -188,7 +191,7 @@ export function planImport(
   defaultVisibility: OnMap,
 ): ImportPlan {
   const byEmail = new Map(members.map((m) => [m.email.toLowerCase(), m]));
-  const seen = new Set<string>();
+  const filled = new Set<string>();
   const changes: ImportChange[] = [];
   const skips: ImportSkip[] = [];
 
@@ -200,14 +203,15 @@ export function planImport(
     const visibility = resolveVisibility(row.visibility, defaultVisibility);
 
     if (!row.email) skip("no-email");
-    else if (seen.has(row.email)) skip("repeated");
+    else if (filled.has(row.email)) skip("repeated");
     else if (!member) skip("no-account");
-    else if (member.chosenBy === "member") skip("chosen-by-member");
+    else if (!member.editable) skip("chosen-by-member");
     else if (!provinceCode) skip("unknown-province", row.province);
     else if (!visibility) skip("unknown-visibility", row.visibility);
-    else changes.push({ line: row.line, member, provinceCode, visibility });
-
-    if (row.email) seen.add(row.email);
+    else {
+      changes.push({ line: row.line, member, provinceCode, visibility });
+      filled.add(row.email);
+    }
   }
   return { changes, skips };
 }

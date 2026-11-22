@@ -52,9 +52,14 @@ export class IdqAdminMemberLocationDto extends IdqSetMemberLocationDto {
   userId: string;
 }
 
+/** Changes per request; the client sends larger saves in batches. */
+export const ADMIN_UPDATE_MAX = 1000;
+
 export class IdqAdminUpdateDto {
   @IsArray()
-  @ArrayMaxSize(1000)
+  @ArrayMaxSize(ADMIN_UPDATE_MAX, {
+    message: `at most ${ADMIN_UPDATE_MAX} members per request`,
+  })
   @ValidateNested({ each: true })
   @Type(() => IdqAdminMemberLocationDto)
   members: IdqAdminMemberLocationDto[];
@@ -107,7 +112,7 @@ export class IdqMemberMapController {
   @Post('admin/members')
   listMembers(@AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
     this.assertAdmin(user, workspace);
-    return this.memberMap.listForAdmin(workspace.id);
+    return this.memberMap.listForAdmin(user, workspace.id);
   }
 
   /**

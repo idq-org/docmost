@@ -63,13 +63,17 @@ export function useAdminUpdateMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: updateMembersAsAdmin,
-    onSuccess: () => {
-      // Everything can change: the list, the map, and the admin's own row
+    // Everything can change: the list, the map, and the admin's own row. On
+    // an error too: a large save goes in batches, and the first ones may
+    // have been saved.
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: memberMapKeys.all });
     },
     onError: () => {
       notifications.show({
-        message: t("Failed to update the members map"),
+        message: t(
+          "Failed to save all the changes. Save again to send the rest.",
+        ),
         color: "red",
       });
     },

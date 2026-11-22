@@ -23,18 +23,18 @@ export function MyLocationBanner() {
     >
       {!onMap
         ? t("You are not on the map.")
-        : mine.setBy
+        : mine.chosenBy === "admin"
           ? mine.visibility === "named"
             ? t(
                 "{{admin}} put you on the map in {{province}}, with your name.",
                 {
-                  admin: mine.setBy.name ?? t("An admin"),
+                  admin: mine.setBy?.name ?? t("An admin"),
                   province,
                 },
               )
             : t(
                 "{{admin}} put you on the map in {{province}}, without your name.",
-                { admin: mine.setBy.name ?? t("An admin"), province },
+                { admin: mine.setBy?.name ?? t("An admin"), province },
               )
           : mine.visibility === "named"
             ? t("You are on the map in {{province}}, with your name.", {
