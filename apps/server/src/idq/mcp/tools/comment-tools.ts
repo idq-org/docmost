@@ -7,16 +7,10 @@ import {
 import { PageIdDto } from '../../../core/comment/dto/comments.input';
 import { CreateCommentDto } from '../../../core/comment/dto/create-comment.dto';
 import { UpdateCommentDto } from '../../../core/comment/dto/update-comment.dto';
-import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
 import { McpInputError, toDto } from '../idq-mcp-core.service';
-import { defineTool } from './tool-context';
+import { cursor, findVisiblePage, pageId, pagination } from './page-tools';
+import { defineTool, paginated } from './tool-context';
 
-const pageId = z
-  .string()
-  .min(1)
-  .describe(
-    'Page ID (UUID) or the short slug ID shown at the end of page URLs',
-  );
 const content = z
   .string()
   .min(1)
@@ -120,27 +114,19 @@ export const commentTools = [
         .max(100)
         .optional()
         .describe('Max results (default 50)'),
-      cursor: z
-        .string()
-        .optional()
-        .describe('Cursor from a previous call (nextCursor)'),
+      cursor,
     }),
     write: false,
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
+      const page = await findVisiblePage(ctx, args.page_id);
       const result: any = await ctx.core.comments.findPageComments(
-        await toDto(PageIdDto, { pageId: args.page_id }),
-        await toDto(PaginationOptions, {
-          limit: args.limit ?? 50,
-          cursor: args.cursor,
-        }),
+        await toDto(PageIdDto, { pageId: page.id }),
+        await pagination(args, 50),
         user,
         workspace,
       );
-      return {
-        items: (result?.items ?? []).map(summarizeComment),
-        nextCursor: result?.meta?.hasNextPage ? result.meta.nextCursor : null,
-      };
+      return paginated(result, summarizeComment);
     },
   }),
 
@@ -162,9 +148,10 @@ export const commentTools = [
     write: true,
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
+      const page = await findVisiblePage(ctx, args.page_id);
       const comment = await ctx.core.comments.create(
         await toDto(CreateCommentDto, {
-          pageId: args.page_id,
+          pageId: page.id,
           content: await markdownToCommentJson(args.markdown),
           parentCommentId: args.parent_comment_id,
           type: 'page',

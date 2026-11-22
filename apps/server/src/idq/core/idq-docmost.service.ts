@@ -16,9 +16,12 @@ import { LabelService } from '../../core/label/label.service';
  * the file to fix.
  *
  * Controllers are called directly (not over HTTP) so that IDQ features run
- * the same permission checks and audit logs as the web app. Guards, pipes
- * and interceptors don't run on such calls: callers authenticate the user
- * and validate the DTOs themselves.
+ * the same permission checks as the web app. Guards, pipes and interceptors
+ * don't run on such calls: callers authenticate the user and validate the
+ * DTOs themselves. Audit logging is a no-op in this build
+ * (NoopAuditService); if it were enabled, entries written by these calls
+ * would have no actor, because Docmost takes the actor from req.user in
+ * AuditActorInterceptor, which doesn't run here.
  */
 @Injectable()
 export class IdqDocmost implements OnModuleInit {

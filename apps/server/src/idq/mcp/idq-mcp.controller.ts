@@ -29,17 +29,26 @@ function jsonError(
 /**
  * Builds the Web Request the MCP SDK expects. Fastify has already parsed the
  * JSON body, and the SDK takes it as `parsedBody`, so the body isn't copied
- * again (nor its content-length header).
+ * again (nor its content-length header). Its signal aborts when the client
+ * goes away before the response is sent, so the SDK cancels the exchange.
  */
-function toWebRequest(req: FastifyRequest): Request {
+function toWebRequest(req: FastifyRequest, reply: FastifyReply): Request {
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
     if (value === undefined || name === 'content-length') continue;
     if (Array.isArray(value)) value.forEach((v) => headers.append(name, v));
     else headers.set(name, String(value));
   }
+  const aborted = new AbortController();
+  reply.raw.once('close', () => {
+    if (!reply.raw.writableFinished) aborted.abort();
+  });
   const url = `${req.protocol}://${req.hostname}${req.url}`;
-  return new Request(url, { method: req.method, headers });
+  return new Request(url, {
+    method: req.method,
+    headers,
+    signal: aborted.signal,
+  });
 }
 
 /**
@@ -91,15 +100,21 @@ export class IdqMcpController {
       });
     }
 
-    const response = await this.mcpService.handler.fetch(toWebRequest(req), {
-      parsedBody: req.method === 'POST' ? req.body : undefined,
-      authInfo: {
-        token: token!,
-        clientId: principal.apiKeyId,
-        scopes: ['read', 'write'],
-        extra: { principal },
+    const response = await this.mcpService.handler.fetch(
+      toWebRequest(req, reply),
+      {
+        parsedBody: req.method === 'POST' ? req.body : undefined,
+        // Only `extra.principal` is read (by IdqMcpService). The SDK type
+        // requires a token and scopes, which only its OAuth helpers use: the
+        // key itself isn't handed over, and there are no scopes.
+        authInfo: {
+          token: '',
+          clientId: principal.apiKeyId,
+          scopes: [],
+          extra: { principal },
+        },
       },
-    });
+    );
 
     reply.status(response.status);
     response.headers.forEach((value, name) => {

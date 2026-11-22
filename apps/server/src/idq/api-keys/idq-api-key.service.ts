@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { InjectKysely } from 'nestjs-kysely';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { sql } from 'kysely';
+import { createHash, randomBytes } from 'node:crypto';
 import { IdqKyselyDB } from '../database/idq-db.types';
 import { UserRepo } from '@docmost/db/repos/user/user.repo';
 import { WorkspaceRepo } from '@docmost/db/repos/workspace/workspace.repo';
@@ -17,6 +18,7 @@ export const IDQ_API_KEY_PREFIX = 'idq_';
 const MAX_ACTIVE_KEYS_PER_USER = 20;
 const LAST_USED_RESOLUTION_MS = 5 * 60 * 1000;
 const DISABLED_USERS_SWEEP_MS = 5 * 60 * 1000;
+export const DISABLED_USERS_SWEEP_NAME = 'idq-api-key-disabled-users';
 
 export type IdqApiKeySummary = {
   id: string;
@@ -74,43 +76,55 @@ export class IdqApiKeyService {
       throw new BadRequestException('Expiration date must be in the future');
     }
 
-    // Expired keys no longer work, so they don't count toward the limit.
-    const { count } = await this.db
-      .selectFrom('idqApiKeys')
-      .select((eb) => eb.fn.countAll<number>().as('count'))
-      .where('userId', '=', userId)
-      .where('workspaceId', '=', workspaceId)
-      .where('revokedAt', 'is', null)
-      .where((eb) =>
-        eb.or([eb('expiresAt', 'is', null), eb('expiresAt', '>', new Date())]),
-      )
-      .executeTakeFirst();
-    if (Number(count) >= MAX_ACTIVE_KEYS_PER_USER) {
-      throw new BadRequestException(
-        `You can have at most ${MAX_ACTIVE_KEYS_PER_USER} active API keys`,
-      );
-    }
-
     const key = generateApiKey();
-    const row = await this.db
-      .insertInto('idqApiKeys')
-      .values({
-        workspaceId,
-        userId,
-        name,
-        keyHash: hashApiKey(key),
-        keyHint: key.slice(0, IDQ_API_KEY_PREFIX.length + 6),
-        expiresAt,
-      })
-      .returning([
-        'id',
-        'name',
-        'keyHint',
-        'expiresAt',
-        'lastUsedAt',
-        'createdAt',
-      ])
-      .executeTakeFirstOrThrow();
+    const row = await this.db.transaction().execute(async (trx) => {
+      // Serializes the creations of one user, so that two concurrent calls
+      // can't both pass the limit check. The lock is released at commit.
+      const lockKey = `idq-api-key:${userId}`;
+      await sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`.execute(
+        trx,
+      );
+
+      // Expired keys no longer work, so they don't count toward the limit.
+      const { count } = await trx
+        .selectFrom('idqApiKeys')
+        .select((eb) => eb.fn.countAll<number>().as('count'))
+        .where('userId', '=', userId)
+        .where('workspaceId', '=', workspaceId)
+        .where('revokedAt', 'is', null)
+        .where((eb) =>
+          eb.or([
+            eb('expiresAt', 'is', null),
+            eb('expiresAt', '>', new Date()),
+          ]),
+        )
+        .executeTakeFirstOrThrow();
+      if (Number(count) >= MAX_ACTIVE_KEYS_PER_USER) {
+        throw new BadRequestException(
+          `You can have at most ${MAX_ACTIVE_KEYS_PER_USER} active API keys`,
+        );
+      }
+
+      return trx
+        .insertInto('idqApiKeys')
+        .values({
+          workspaceId,
+          userId,
+          name,
+          keyHash: hashApiKey(key),
+          keyHint: key.slice(0, IDQ_API_KEY_PREFIX.length + 6),
+          expiresAt,
+        })
+        .returning([
+          'id',
+          'name',
+          'keyHint',
+          'expiresAt',
+          'lastUsedAt',
+          'createdAt',
+        ])
+        .executeTakeFirstOrThrow();
+    });
 
     return { ...(row as unknown as IdqApiKeySummary), key };
   }
@@ -146,8 +160,9 @@ export class IdqApiKeyService {
    * sessions, so the keys don't work again if the user is reactivated.
    * `authenticate` already refuses them while the user is disabled; this
    * sweep makes the revocation permanent without changing Docmost's code.
+   * IdqSchedulerCheck reports at startup if the interval isn't scheduled.
    */
-  @Interval('idq-api-key-disabled-users', DISABLED_USERS_SWEEP_MS)
+  @Interval(DISABLED_USERS_SWEEP_NAME, DISABLED_USERS_SWEEP_MS)
   async revokeKeysOfDisabledUsers(): Promise<void> {
     try {
       const result = await this.db
@@ -179,11 +194,12 @@ export class IdqApiKeyService {
 
   /**
    * Checks a key on every request, with no cache, so a revoked key stops
-   * working immediately. Returns null if the key isn't valid.
+   * working immediately. Returns null if the key isn't valid, or if it
+   * doesn't belong to the workspace of the request (which is required).
    */
   async authenticate(
     key: string | undefined,
-    workspaceId?: string | null,
+    workspaceId: string | null | undefined,
   ): Promise<IdqApiKeyPrincipal | null> {
     if (!key || !key.startsWith(IDQ_API_KEY_PREFIX) || key.length > 200) {
       return null;
@@ -192,21 +208,18 @@ export class IdqApiKeyService {
     const keyHash = hashApiKey(key);
     const row = await this.db
       .selectFrom('idqApiKeys')
-      .select(['id', 'userId', 'workspaceId', 'keyHash', 'expiresAt', 'lastUsedAt'])
+      .select(['id', 'userId', 'workspaceId', 'expiresAt', 'lastUsedAt'])
       .where('keyHash', '=', keyHash)
       .where('revokedAt', 'is', null)
       .executeTakeFirst();
 
-    if (
-      !row ||
-      !timingSafeEqual(Buffer.from(row.keyHash), Buffer.from(keyHash))
-    ) {
+    if (!row) {
       return null;
     }
     if (row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now()) {
       return null;
     }
-    if (workspaceId && workspaceId !== row.workspaceId) {
+    if (!workspaceId || workspaceId !== row.workspaceId) {
       return null;
     }
 

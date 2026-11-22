@@ -2,11 +2,10 @@ import { z } from 'zod';
 import { SpaceIdDto } from '../../../core/page/dto/page.dto';
 import { CreateSpaceDto } from '../../../core/space/dto/create-space.dto';
 import { UpdateSpaceDto } from '../../../core/space/dto/update-space.dto';
-import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
+import { ListSpacesDto } from '../../../core/space/dto/list-spaces.dto';
 import { toDto } from '../idq-mcp-core.service';
-import { defineTool } from './tool-context';
-
-const spaceId = z.string().uuid().describe('Space ID (UUID)');
+import { cursor, spaceId } from './page-tools';
+import { defineTool, paginated } from './tool-context';
 const slug = z
   .string()
   .min(2)
@@ -46,25 +45,19 @@ export const spaceTools = [
         .max(100)
         .optional()
         .describe('Max results (default 50)'),
-      cursor: z
-        .string()
-        .optional()
-        .describe('Cursor from a previous call (nextCursor)'),
+      cursor,
     }),
     write: false,
     handler: async (args, ctx) => {
       const result: any = await ctx.core.spaces.getWorkspaceSpaces(
-        await toDto(PaginationOptions, {
+        await toDto(ListSpacesDto, {
           limit: args.limit ?? 50,
           cursor: args.cursor,
           query: args.query,
         }),
         ctx.principal.user,
       );
-      return {
-        items: (result?.items ?? []).map(summarizeSpace),
-        nextCursor: result?.meta?.hasNextPage ? result.meta.nextCursor : null,
-      };
+      return paginated(result, summarizeSpace);
     },
   }),
 

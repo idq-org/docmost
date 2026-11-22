@@ -64,6 +64,20 @@ function errorMessage(err: unknown): string {
   return 'Internal error while running the tool';
 }
 
+/**
+ * A core paginated result ({ items, meta }) as the tools return it: the
+ * mapped items, and the cursor of the next page or null.
+ */
+export function paginated<T>(
+  result: any,
+  map: (item: any) => T,
+): { items: T[]; nextCursor: string | null } {
+  return {
+    items: (result?.items ?? []).map((item: any) => map(item)),
+    nextCursor: result?.meta?.hasNextPage ? result.meta.nextCursor : null,
+  };
+}
+
 export function textResult(value: unknown): ToolResult {
   const text =
     typeof value === 'string' ? value : JSON.stringify(value, null, 2);
@@ -83,11 +97,13 @@ export function registerTools(
         title: tool.title,
         description: tool.description,
         inputSchema: tool.inputSchema,
+        // destructiveHint is only meaningful for write tools, so only they
+        // send it. idempotentHint is left out: it too only concerns write
+        // tools, and none of ours is idempotent (the default).
         annotations: {
           title: tool.title,
           readOnlyHint: !tool.write,
-          destructiveHint: tool.write ? Boolean(tool.destructive) : false,
-          idempotentHint: !tool.write,
+          ...(tool.write ? { destructiveHint: Boolean(tool.destructive) } : {}),
           openWorldHint: false,
         },
       },
