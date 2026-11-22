@@ -11,9 +11,15 @@ import { IAdminMember } from "../types";
 
 describe("parseCsv", () => {
   it("reads Italian Excel files: semicolons, BOM, CRLF", () => {
-    expect(parseCsv("﻿email;provincia\r\nada@x.it;BO\r\n")).toEqual([
+    expect(parseCsv("\uFEFFemail;provincia\r\nada@x.it;BO\r\n")).toEqual([
       ["email", "provincia"],
       ["ada@x.it", "BO"],
+    ]);
+  });
+
+  it("finds the columns of a file that starts with a BOM", () => {
+    expect(readImportRows('﻿"email";"provincia"\nada@x.it;BO\n')).toEqual([
+      { line: 2, email: "ada@x.it", province: "BO", visibility: undefined },
     ]);
   });
 
@@ -45,6 +51,13 @@ describe("resolveProvince", () => {
     ["Roma", "RM"],
   ])("%s → %s", (value, code) => {
     expect(resolveProvince(value)).toBe(code);
+  });
+
+  it("ignores accents however they are encoded", () => {
+    // Precomposed (NFC) and decomposed (NFD: "i" + combining grave accent)
+    expect(resolveProvince("Forlì-Cesena")).toBe("FC");
+    expect(resolveProvince("Forlì-Cesena")).toBe("FC");
+    expect(resolveProvince("FORLÌ")).toBe("FC");
   });
 
   it.each(["", "XX", "Reggio", "Via Roma 1, Bologna"])(
@@ -93,14 +106,17 @@ describe("planImport", () => {
     id: string,
     email: string,
     chosenBy: IAdminMember["chosenBy"] = null,
+    editable = chosenBy !== "member",
   ): IAdminMember => ({
     id,
     email,
     name: id,
     avatarUrl: null,
-    provinceCode: chosenBy ? "RM" : null,
-    visibility: chosenBy ? "count" : "hidden",
+    // As the server lists them: a member's own choice only on the admin's row
+    provinceCode: chosenBy && editable ? "RM" : null,
+    visibility: chosenBy && editable ? "count" : chosenBy ? null : "hidden",
     chosenBy,
+    editable,
     setByName: null,
     updatedAt: null,
   });
@@ -159,5 +175,40 @@ describe("planImport", () => {
       provinceCode: "NA",
       visibility: "named",
     });
+  });
+
+  it("takes a corrected row after one that was left out", () => {
+    const plan = planImport(
+      readImportRows(
+        [
+          "email;provincia;visibilita",
+          "elena@x.it;Bolgona;",
+          "elena@x.it;Bologna;forse",
+          "elena@x.it;Bologna;",
+          "elena@x.it;Roma;",
+        ].join("\n"),
+      ),
+      members,
+      "count",
+    );
+    expect(plan.changes.map((c) => [c.line, c.provinceCode])).toEqual([
+      [4, "BO"],
+    ]);
+    expect(plan.skips.map((s) => [s.line, s.reason])).toEqual([
+      [2, "unknown-province"],
+      [3, "unknown-visibility"],
+      [5, "repeated"],
+    ]);
+  });
+
+  it("fills in the admin's own row, which the server lets them change", () => {
+    const own = member("me", "me@x.it", "member", true);
+    const plan = planImport(
+      readImportRows("email;provincia\nme@x.it;PD\n"),
+      [own],
+      "count",
+    );
+    expect(plan.skips).toEqual([]);
+    expect(plan.changes).toMatchObject([{ member: own, provinceCode: "PD" }]);
   });
 });

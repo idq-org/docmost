@@ -71,18 +71,27 @@ export function ImportModal({
     setRows(null);
     setError(null);
     if (!file) return;
+    // A file chosen in the meantime (or closing the dialog) makes this
+    // reading stale: its result must not replace the newer one.
+    let current = true;
     readText(file)
-      .then((text) => setRows(readImportRows(text)))
-      .catch((err) =>
+      .then((text) => {
+        if (current) setRows(readImportRows(text));
+      })
+      .catch((err) => {
+        if (!current) return;
         setError(
           err instanceof ImportFileError && err.message === "columns"
             ? t(
                 'The first row must name the columns: "email" and "provincia" (and, if you want, "visibilità").',
               )
             : t("The file can't be read: save it from Excel as CSV."),
-        ),
-      );
-  }, [file]);
+        );
+      });
+    return () => {
+      current = false;
+    };
+  }, [file, t]);
 
   const plan = useMemo(
     () => (rows ? planImport(rows, members, defaultVisibility) : null),

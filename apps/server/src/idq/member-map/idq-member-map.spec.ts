@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { summarizeMemberMap } from './idq-member-map';
 import {
+  ADMIN_UPDATE_MAX,
   IdqAdminUpdateDto,
   IdqSetMemberLocationDto,
 } from './idq-member-map.controller';
@@ -138,10 +139,10 @@ describe('IdqAdminUpdateDto', () => {
   });
 
   it('takes at most 1000 members at once', async () => {
-    const members = Array.from({ length: 1001 }, () => ({
-      userId,
-      visibility: 'hidden',
-    }));
-    expect(await valid({ members })).toBe(false);
+    const members = (n: number) =>
+      Array.from({ length: n }, () => ({ userId, visibility: 'hidden' }));
+    expect(ADMIN_UPDATE_MAX).toBe(1000);
+    expect(await valid({ members: members(1000) })).toBe(true);
+    expect(await valid({ members: members(1001) })).toBe(false);
   });
 });

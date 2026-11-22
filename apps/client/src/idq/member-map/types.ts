@@ -1,18 +1,27 @@
 /** What a member chooses in their profile. */
 export type MemberVisibility = "hidden" | "count" | "named";
 
-export interface IMemberLocation {
+/** Who decided: the member in their profile, or an admin (null: nobody yet). */
+export type ChosenBy = "member" | "admin";
+
+/** What the profile sends: the member's own choice. */
+export interface IMemberLocationUpdate {
   /** Province abbreviation, e.g. "BO"; null when not on the map. */
   provinceCode: string | null;
   visibility: MemberVisibility;
-  /** The admin who put the member on the map; null if the member chose. */
-  setBy?: { id: string; name: string | null } | null;
+}
+
+export interface IMemberLocation extends IMemberLocationUpdate {
+  chosenBy: ChosenBy | null;
+  /** The admin who put the member on the map (chosenBy admin), or null. */
+  setBy: { id: string; name: string | null } | null;
 }
 
 /**
  * A workspace member, in the map management page (admins only). For members
- * who chose in their profile, admins only learn that they chose: province
- * and visibility are null.
+ * who decided in their profile, admins only learn that they decided, never
+ * which choice: province and visibility are null, whatever they chose. The
+ * admin's own row is the exception (editable, with its values).
  */
 export interface IAdminMember {
   id: string;
@@ -21,8 +30,10 @@ export interface IAdminMember {
   avatarUrl: string | null;
   provinceCode: string | null;
   visibility: MemberVisibility | null;
-  /** member: chosen in the profile; admin: set by an admin; null: not on the map */
-  chosenBy: "member" | "admin" | null;
+  /** member: decided in the profile; admin: set by an admin; null: nobody decided */
+  chosenBy: ChosenBy | null;
+  /** Whether the current admin can change this row. */
+  editable: boolean;
   setByName: string | null;
   updatedAt: string | null;
 }

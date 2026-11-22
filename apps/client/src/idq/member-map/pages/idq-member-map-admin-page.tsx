@@ -54,7 +54,8 @@ function sameAs(member: IAdminMember, edit: Edit) {
 /**
  * Admins put on the map the members who gave their consent: by hand, or
  * from a list. Members see who did it, and can change or remove it in their
- * profile; what members chose themselves can't be changed here.
+ * profile; what members decided themselves can't be changed here, and the
+ * server doesn't say which choice it was.
  */
 export default function IdqMemberMapAdminPage() {
   const { t } = useTranslation();
@@ -159,7 +160,7 @@ export default function IdqMemberMapAdminPage() {
 
         <Alert variant="light" icon={<IconInfoCircle />}>
           {t(
-            "Put on the map only the members who gave their consent. They see that an admin did it, and can change or remove it in their profile. What a member chose in their profile can't be changed here.",
+            "Put on the map only the members who gave their consent. They aren't notified: they see it, with your name, in their profile and on the map page, and can change or remove it there. What a member decided in their profile can't be changed here, and you don't see which choice they made.",
           )}
         </Alert>
 
@@ -218,7 +219,9 @@ export default function IdqMemberMapAdminPage() {
               <Table.Tbody>
                 {visible.map((member) => {
                   const edit = current(member);
-                  const locked = member.chosenBy === "member";
+                  // The server decides: members' own choices are locked,
+                  // except the admin's own row.
+                  const locked = !member.editable;
                   const changed = edits.has(member.id);
                   const missingProvince =
                     edit.visibility !== "hidden" && !edit.provinceCode;
@@ -312,7 +315,12 @@ export default function IdqMemberMapAdminPage() {
                             {t("The member")}
                           </Badge>
                         ) : member.chosenBy === "admin" ? (
-                          <Text size="sm">{member.setByName}</Text>
+                          <Text size="sm">
+                            {member.setByName ?? t("An admin")}
+                          </Text>
+                        ) : member.chosenBy === "member" ? (
+                          // The admin's own row: their own choice
+                          <Text size="sm">{t("You")}</Text>
                         ) : (
                           <Text size="sm" c="dimmed">
                             —

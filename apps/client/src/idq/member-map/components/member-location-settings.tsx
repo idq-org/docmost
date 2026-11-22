@@ -23,8 +23,10 @@ import "../i18n";
 
 /**
  * Province and visibility on the members map, in the profile page. Nobody is
- * on the map until they choose to be; "Don't show me" also forgets the
- * province on the server.
+ * on the map until they choose to be, or an admin puts them on it with their
+ * consent (shown here, and the member can override it). Whatever the member
+ * saves is their own choice, which admins can't change; "Don't show me" also
+ * forgets the province on the server.
  */
 export function MemberLocationSettings() {
   const { t } = useTranslation();
@@ -49,9 +51,12 @@ export function MemberLocationSettings() {
   }, [location.hash]);
 
   const hidden = visibility === "hidden";
+  // Until the member saves, the choice isn't theirs (nobody decided, or an
+  // admin did): saving it as it is makes it theirs, "Don't show me" included.
   const changed =
     !!saved &&
-    (visibility !== saved.visibility ||
+    (saved.chosenBy !== "member" ||
+      visibility !== saved.visibility ||
       (!hidden && province !== saved.provinceCode));
   const valid = hidden || !!province;
 
@@ -71,13 +76,20 @@ export function MemberLocationSettings() {
         )}
       </Text>
 
-      {saved?.setBy && (
+      {saved?.chosenBy === "admin" && (
         <Alert variant="light" mt="md" icon={<IconInfoCircle />}>
           {t(
             "{{admin}} put you on the map, with your consent. You can change or remove it here: from then on it's your choice.",
-            { admin: saved.setBy.name ?? t("An admin") },
+            { admin: saved.setBy?.name ?? t("An admin") },
           )}
         </Alert>
+      )}
+      {saved && saved.chosenBy === null && (
+        <Text size="sm" c="dimmed" mt="sm">
+          {t(
+            "You haven't chosen yet. Until you do, an admin can put you on the map, if you gave your consent. Saving any choice here, \"Don't show me\" included, means only you can change it.",
+          )}
+        </Text>
       )}
 
       <Radio.Group
@@ -91,7 +103,7 @@ export function MemberLocationSettings() {
             value="hidden"
             label={t("Don't show me")}
             description={t(
-              "You are not on the map, and your province is not kept.",
+              "You are not on the map, your province is not kept, and admins can't put you on it.",
             )}
           />
           <Radio
