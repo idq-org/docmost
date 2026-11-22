@@ -5,6 +5,7 @@ import {
   Button,
   Code,
   Group,
+  Loader,
   Modal,
   Select,
   Stack,
@@ -158,21 +159,37 @@ function CreateKeyModal({
   const [expiration, setExpiration] = useState<string>("90");
   const createKey = useCreateIdqApiKeyMutation();
 
-  const submit = async () => {
-    const days = EXPIRATION_DAYS[expiration];
-    const created = await createKey.mutateAsync({
-      name: name.trim(),
-      expiresAt: days
-        ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
-        : undefined,
-    });
+  const reset = () => {
     setName("");
     setExpiration("90");
-    onCreated(created);
+  };
+
+  const close = () => {
+    reset();
+    onClose();
+  };
+
+  const submit = () => {
+    const days = EXPIRATION_DAYS[expiration];
+    // Errors are shown by the mutation; the modal stays open to retry.
+    createKey.mutate(
+      {
+        name: name.trim(),
+        expiresAt: days
+          ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+          : undefined,
+      },
+      {
+        onSuccess: (created) => {
+          reset();
+          onCreated(created);
+        },
+      },
+    );
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title={t("Create API key")}>
+    <Modal opened={opened} onClose={close} title={t("Create API key")}>
       <Stack>
         <TextInput
           label={t("Name")}
@@ -195,7 +212,7 @@ function CreateKeyModal({
           ]}
         />
         <Group justify="flex-end">
-          <Button variant="default" onClick={onClose}>
+          <Button variant="default" onClick={close}>
             {t("Cancel")}
           </Button>
           <Button
@@ -213,7 +230,7 @@ function CreateKeyModal({
 
 function ApiKeys() {
   const { t, i18n } = useTranslation();
-  const { data: keys } = useIdqApiKeysQuery();
+  const { data: keys, isPending, isError } = useIdqApiKeysQuery();
   const revokeKey = useRevokeIdqApiKeyMutation();
   const [createOpened, setCreateOpened] = useState(false);
   const [createdKey, setCreatedKey] = useState<IIdqApiKeyCreated | null>(null);
@@ -250,6 +267,14 @@ function ApiKeys() {
           "Personal keys to use the MCP server. Each key acts as you: an assistant that uses it can do what you can do. Revoke a key as soon as you no longer need it.",
         )}
       </Text>
+
+      {isPending && <Loader size="sm" />}
+
+      {isError && (
+        <Alert color="red" variant="light">
+          {t("Failed to load your API keys")}
+        </Alert>
+      )}
 
       {keys && keys.length === 0 && (
         <Text size="sm" c="dimmed">
@@ -323,7 +348,10 @@ function ApiKeys() {
         opened={Boolean(createdKey)}
         onClose={() => setCreatedKey(null)}
         title={t("Copy your API key")}
+        // The key is shown only once: close it only on purpose, with Done
         closeOnClickOutside={false}
+        closeOnEscape={false}
+        withCloseButton={false}
       >
         <Stack>
           <Text size="sm">

@@ -1,6 +1,7 @@
 import { Anchor, Text } from "@mantine/core";
 import { Trans, useTranslation } from "react-i18next";
 import { buildLicenseUrl, buildSourceUrl } from "./build-source-url";
+import classes from "./source-link.module.css";
 import "./i18n";
 
 const COMMIT = import.meta.env.VITE_IDQ_SOURCE_COMMIT;
@@ -8,6 +9,7 @@ const SOURCE_URL = buildSourceUrl(COMMIT);
 const LICENSE_URL = buildLicenseUrl(COMMIT);
 
 type SourceLinkProps = {
+  /** Short form, for the bottom of the app's navbar */
   compact?: boolean;
 };
 
@@ -15,7 +17,14 @@ export function SourceLink({ compact = false }: SourceLinkProps) {
   const { t } = useTranslation();
 
   return (
-    <Text size="xs" c="dimmed" ta="center" px="md" py="xs">
+    <Text
+      size="xs"
+      c="dimmed"
+      ta="center"
+      px="md"
+      py="xs"
+      className={compact ? classes.sidebarFooter : undefined}
+    >
       <Anchor
         href={SOURCE_URL}
         target="_blank"

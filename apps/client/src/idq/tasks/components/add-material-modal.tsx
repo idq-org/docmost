@@ -3,6 +3,7 @@ import {
   Button,
   FileButton,
   Group,
+  Loader,
   Modal,
   ScrollArea,
   Stack,
@@ -27,6 +28,7 @@ import { searchTaskAttachments } from "../services/idq-task-service";
 import { useAddTaskLinkMutation } from "../queries/idq-task-query";
 import { formatFileSize } from "../task-display";
 import classes from "./task-panel.module.css";
+import { apiErrorMessage } from "@/idq/core/api-error";
 
 type AddMaterialModalProps = {
   taskPageId: string;
@@ -129,6 +131,7 @@ function PagePicker({
       />
       <ScrollArea.Autosize mah={320}>
         <Stack gap={2}>
+          {isFetching && pages.length === 0 && <Loader size="xs" m="xs" />}
           {debounced.length > 0 && !isFetching && pages.length === 0 && (
             <Text size="sm" c="dimmed">
               {t("No pages found")}
@@ -147,7 +150,11 @@ function PagePicker({
               }
             >
               <Group gap="xs" wrap="nowrap">
-                <Text size="sm">{page.icon || "📄"}</Text>
+                {page.icon ? (
+                  <Text size="sm">{page.icon}</Text>
+                ) : (
+                  <IconFileDescription size={16} />
+                )}
                 <Text size="sm" truncate>
                   {page.title || t("Untitled")}
                 </Text>
@@ -197,9 +204,9 @@ function AttachmentPicker({
       // The file becomes an attachment of the task page.
       const attachment = await uploadFile(file, { pageId: taskPageId });
       link(attachment.id);
-    } catch (err: any) {
+    } catch (err) {
       notifications.show({
-        message: err?.response?.data?.message ?? t("Failed to upload the file"),
+        message: apiErrorMessage(err, t("Failed to upload the file")),
         color: "red",
       });
     } finally {
@@ -237,6 +244,9 @@ function AttachmentPicker({
       />
       <ScrollArea.Autosize mah={300}>
         <Stack gap={2}>
+          {isFetching && attachments.length === 0 && (
+            <Loader size="xs" m="xs" />
+          )}
           {!isFetching && attachments.length === 0 && (
             <Text size="sm" c="dimmed">
               {t("No files found")}

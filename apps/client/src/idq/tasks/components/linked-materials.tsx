@@ -170,7 +170,7 @@ function describeLink(
             `/api/files/${file.id}/${encodeURIComponent(file.fileName)}`,
           )}
           target="_blank"
-          rel="noopener"
+          rel="noopener noreferrer"
           size="sm"
           truncate
           className={classes.linkTitle}

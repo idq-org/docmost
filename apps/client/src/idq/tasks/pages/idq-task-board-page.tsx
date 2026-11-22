@@ -35,13 +35,13 @@ import { useAddPageToTree } from "@/idq/core/space-tree";
 import { IBoardTask, ITaskBoard, TaskStatus } from "../types";
 import { compareTasks, statusColor, statusName } from "../task-display";
 import { TaskColumn } from "../components/task-column";
+import { TaskFiltersBar } from "../components/task-filters";
 import {
   NO_FILTERS,
   TaskFilters,
-  TaskFiltersBar,
   applyFilters,
   hasFilters,
-} from "../components/task-filters";
+} from "../task-filtering";
 import { BoardSettingsModal } from "../components/board-settings-modal";
 import classes from "../components/task-board.module.css";
 import "../i18n";

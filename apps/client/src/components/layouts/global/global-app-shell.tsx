@@ -141,22 +141,21 @@ export default function GlobalAppShell({
         {!sessionPending && (
           <>
             {isSpaceRoute && (
-              <div className={classes.resizeHandle} onMouseDown={startResizing} />
+              <>
+                <div className={classes.resizeHandle} onMouseDown={startResizing} />
+                <SpaceSidebar />
+              </>
             )}
-            <AppShell.Section grow style={{ minHeight: 0 }}>
-              {isSpaceRoute && <SpaceSidebar />}
-              {isSettingsRoute && <SettingsSidebar />}
-              {isAiRoute && (
-                <React.Suspense fallback={null}>
-                  <AiChatSidebar />
-                </React.Suspense>
-              )}
-              {showGlobalSidebar && <GlobalSidebar />}
-            </AppShell.Section>
-            {/* IDQ: source code link (AGPL-3.0) */}
-            <SourceLink compact />
+            {isSettingsRoute && <SettingsSidebar />}
+            {isAiRoute && (
+              <React.Suspense fallback={null}>
+                <AiChatSidebar />
+              </React.Suspense>
+            )}
+            {showGlobalSidebar && <GlobalSidebar />}
           </>
         )}
+        <SourceLink compact /* IDQ: source code link (AGPL-3.0) */ />
       </AppShell.Navbar>
       <Box
         hiddenFrom="sm"
