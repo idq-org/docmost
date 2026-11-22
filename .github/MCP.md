@@ -29,12 +29,15 @@ Every call acts as the user who created the key and never goes beyond their spac
 | Area | Tools |
 |---|---|
 | Pages | `search_pages`, `get_page`, `create_page`, `update_page`, `list_pages`, `list_child_pages`, `duplicate_page`, `copy_page_to_space`, `move_page`, `move_page_to_space` |
+| Page history | `list_page_history`, `get_page_history` |
 | Spaces | `get_space`, `list_spaces`, `create_space`, `update_space` |
 | Comments | `get_comments`, `create_comment`, `update_comment` |
 | Tasks | `list_tasks`, `get_task`, `get_task_options`, `get_task_settings`, `create_task`, `update_task`, `add_task_link`, `remove_task_link`, `list_assignee_mappings`, `set_assignee_mapping`, `update_task_settings` |
 | Other | `search_attachments`, `list_workspace_members`, `get_current_user` |
 
 Page content goes in and out as Markdown: headings, lists, tables, code blocks and Mermaid diagrams (` ```mermaid ` blocks). Comments are Markdown too, but only with what the web app's comment editor can show: paragraphs, headings, lists, quotes, code blocks, links and text formatting. A comment with a table, a task list or an image is refused with an error, instead of showing up empty in the web app. The server itself describes the tool parameters: clients read them when they connect.
+
+The page history tools aren't part of the Docmost MCP. They read the versions that Docmost saves for the history panel of the web app, with the same permissions. `list_page_history` lists the versions of a page, newest first, with date, title, author and contributors; it takes `limit` and `cursor` like `list_pages`. `get_page_history` returns one version with its title and its content as Markdown, in the same format as `get_page`. Docmost saves a version once a page has been quiet for `PAGE_HISTORY_INTERVAL` (5 minutes by default, 1 minute for a page created less than 5 minutes ago): an edit made with `update_page` is saved like an edit in the editor, so it shows up after that delay. There is no restore tool: to bring a version back, read it with `get_page_history` and write its content with `update_page`.
 
 The task tools aren't part of the Docmost MCP: they give access to the [IDQ task board](TASKS.md), with the same permissions as the web app. `list_tasks` takes the filters of the board (priority, area, person in charge, *My tasks*); a filter takes a value or a name, and a person in charge also matches the other values that stand for the same member. The last three tools are for workspace admins.
 
@@ -56,6 +59,7 @@ The task tools aren't part of the Docmost MCP: they give access to the [IDQ task
   - `database/` holds the migrations.
   - `core/` gives access to Docmost's controllers and permission checks, shared with the other IDQ features.
 - The page, space, comment and search tools call the core controllers, so they run exactly the same permission checks as the web app. Among them, the only tool with a query of our own is `search_attachments`: it filters on the space each page is in now, then applies the core page permissions.
+- The page history tools (`mcp/tools/page-history-tools.ts`) call the history methods of the core page controller (`/pages/history` and `/pages/history/info`), and convert the content with the same function as `get_page`. A version id passed with a page it doesn't belong to is answered as not found.
 - The task tools (`mcp/tools/task-tools.ts`) call the IDQ task services behind the endpoints of `IdqTasksController`, with the same DTOs, so they run the same checks as the board. Those services have their own label and link queries (`apps/server/src/idq/tasks/`), filtered by space membership and by the core page permissions.
 - The IDQ migrations run at startup, after Docmost's, with their own tracking table (`idq_kysely_migration`). Migrations coming from upstream never end up in the middle of ours.
 - Client: `apps/client/src/idq/mcp/`. The route is in `apps/client/src/idq/routes.tsx` and the menu item in `apps/client/src/idq/settings-nav.ts`. The Italian translations are in `apps/client/src/idq/mcp/i18n.ts`, not in `public/locales`, so they don't conflict with Docmost's updates.
@@ -85,5 +89,6 @@ It creates an admin, a member who can write in a shared space, a member who can 
 - that the read-only member can't write anything in the shared space;
 - that a writer creates tasks, changes their fields and links materials, and that only workspace admins change people in charge and the label vocabulary;
 - that Markdown content (headings, lists, tables, Mermaid) is written and read back correctly, and that comments refuse what the web app can't show;
+- that an edit made with `update_page` shows up in `list_page_history` with the right author once Docmost saves the version (the test waits for it, about a minute), that versions come newest first page by page, and that no version of the restricted space can be listed or read, not even through a page the member can see;
 - that a revoked key stops working at once, and that deactivating a member revokes their keys even after reactivation;
 - that blank key names are refused and expired keys don't count toward the limit.
