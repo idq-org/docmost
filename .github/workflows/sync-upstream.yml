@@ -67,7 +67,8 @@ jobs:
 
       # With SYNC_TOKEN, opening the PR or pushing to main triggers CI by itself.
       # PRs and pushes made by GITHUB_TOKEN don't: start CI on the PR by hand. It
-      # builds the PR merge result and writes "docker-build" on the PR head.
+      # checks the PR merge result and writes its results as statuses on the PR
+      # head ("docker-build" is the first one it marks as pending).
       - name: Run CI on the PR (GITHUB_TOKEN fallback)
         if: env.HAS_SYNC_TOKEN != 'true'
         run: |
