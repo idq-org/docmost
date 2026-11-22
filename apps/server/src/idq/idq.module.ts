@@ -3,6 +3,7 @@ import { IdqMigrationService } from './database/idq-migration.service';
 import { IdqDocmost } from './core/idq-docmost.service';
 import { IdqPageAccess } from './core/idq-page-access.service';
 import { IdqPageLock } from './core/idq-page-lock.service';
+import { IdqSchedulerCheck } from './core/idq-scheduler-check.service';
 import { IdqAttachmentSearchService } from './core/idq-attachment-search.service';
 import { IdqApiKeyService } from './api-keys/idq-api-key.service';
 import { IdqApiKeyController } from './api-keys/idq-api-key.controller';
@@ -45,6 +46,7 @@ import { IdqMemberMapService } from './member-map/idq-member-map.service';
     IdqPageAccess,
     IdqPageLock,
     IdqAttachmentSearchService,
+    IdqSchedulerCheck,
     // API keys and settings
     IdqApiKeyService,
     IdqSettingsService,

@@ -72,6 +72,10 @@ export class IdqMcpService implements OnModuleDestroy {
       {
         legacy: 'stateless',
         responseMode: 'json',
+        // No subscriptions/listen streams: the server never publishes change
+        // events, and each open stream would count toward one limit shared
+        // by every user of the instance.
+        maxSubscriptions: 0,
         onerror: (err) => this.logger.warn(`MCP transport: ${err.message}`),
       },
     );

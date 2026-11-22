@@ -7,6 +7,7 @@ import { PageRepo } from '@docmost/db/repos/page/page.repo';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { IdqDocmost } from '../core/idq-docmost.service';
+import { IdqPageAccess } from '../core/idq-page-access.service';
 
 export class McpInputError extends Error {}
 
@@ -38,7 +39,8 @@ export async function toDto<T extends object>(
  * Access to the core controllers, through IdqDocmost. The MCP tools go
  * through them instead of calling repositories and services directly, so
  * every call runs the same permission checks (space and page) as the web
- * app.
+ * app. A page passed by id is first looked up with `idqPageAccess`, the
+ * page visibility check shared by the IDQ features.
  */
 @Injectable()
 export class IdqMcpCoreService {
@@ -46,6 +48,7 @@ export class IdqMcpCoreService {
     private readonly docmost: IdqDocmost,
     private readonly environmentService: EnvironmentService,
     readonly pageRepo: PageRepo,
+    readonly idqPageAccess: IdqPageAccess,
     @InjectKysely() private readonly db: KyselyDB,
   ) {}
 
@@ -66,9 +69,6 @@ export class IdqMcpCoreService {
   }
   get users() {
     return this.docmost.userController;
-  }
-  get pageAccess() {
-    return this.docmost.pageAccess;
   }
   get pageService() {
     return this.docmost.pageService;

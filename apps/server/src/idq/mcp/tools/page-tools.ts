@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 import { generateJitteredKeyBetween } from 'fractional-indexing-jittered';
 import { PageInfoDto } from '../../../core/page/dto/page.dto';
@@ -14,7 +14,7 @@ import {
 import { SearchDTO } from '../../../core/search/dto/search.dto';
 import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
 import { toDto } from '../idq-mcp-core.service';
-import { defineTool, ToolContext } from './tool-context';
+import { defineTool, paginated, ToolContext } from './tool-context';
 
 export const pageId = z
   .string()
@@ -51,34 +51,38 @@ export function summarizePage(ctx: ToolContext, page: any) {
   };
 }
 
-function paginated(ctx: ToolContext, result: any, map = summarizePage) {
-  return {
-    items: (result?.items ?? []).map((item: any) => map(ctx, item)),
-    nextCursor: result?.meta?.hasNextPage ? result.meta.nextCursor : null,
-  };
-}
-
-export async function pagination(args: { limit?: number; cursor?: string }) {
+export async function pagination(
+  args: { limit?: number; cursor?: string },
+  defaultLimit = 20,
+) {
   return toDto(PaginationOptions, {
-    limit: args.limit ?? 20,
+    limit: args.limit ?? defaultLimit,
     cursor: args.cursor,
   });
 }
 
+/**
+ * A page the user can see, by id or slug id. A page that is missing,
+ * deleted, in another workspace or hidden from the user gets the same
+ * NotFoundException, so the answer doesn't reveal that it exists.
+ */
 export async function findVisiblePage(ctx: ToolContext, id: string) {
-  const page = await ctx.core.pageRepo.findById(id);
-  if (!page || page.deletedAt) throw new NotFoundException('Page not found');
-  await ctx.core.pageAccess.validateCanView(page, ctx.principal.user);
+  const { user, workspace } = ctx.principal;
+  const { page } = await ctx.core.idqPageAccess.findViewablePage(
+    id,
+    user,
+    workspace.id,
+  );
   return page;
 }
 
 async function fullPage(ctx: ToolContext, id: string) {
   const { user } = ctx.principal;
+  const visible = await findVisiblePage(ctx, id);
   const page: any = await ctx.core.pages.getPage(
-    await toDto(PageInfoDto, { pageId: id, format: 'markdown' }),
+    await toDto(PageInfoDto, { pageId: visible.id, format: 'markdown' }),
     user,
   );
-  if (page.deletedAt) throw new NotFoundException('Page not found');
   return {
     ...summarizePage(ctx, page),
     space: page.space
@@ -274,7 +278,7 @@ export const pageTools = [
         await pagination(args),
         user,
       );
-      return paginated(ctx, result);
+      return paginated(result, (page) => summarizePage(ctx, page));
     },
   }),
 
@@ -309,7 +313,7 @@ export const pageTools = [
         await pagination(args),
         user,
       );
-      return paginated(ctx, result);
+      return paginated(result, (page) => summarizePage(ctx, page));
     },
   }),
 

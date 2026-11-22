@@ -10,7 +10,7 @@ import {
   pageId,
   pagination,
 } from './page-tools';
-import { defineTool, ToolContext } from './tool-context';
+import { defineTool, paginated, ToolContext } from './tool-context';
 
 /**
  * Read-only tools for the version history of a page (issue #32). They call
@@ -78,11 +78,7 @@ export const pageHistoryTools = [
         await pagination(args),
         ctx.principal.user,
       );
-      return {
-        pageId: page.id,
-        items: (result?.items ?? []).map(summarizeVersion),
-        nextCursor: result?.meta?.hasNextPage ? result.meta.nextCursor : null,
-      };
+      return { pageId: page.id, ...paginated(result, summarizeVersion) };
     },
   }),
 

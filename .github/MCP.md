@@ -22,7 +22,7 @@ MCP server built into our Docmost instance, **compatible with clients of the Doc
    npx -y mcp-remote https://app.informaticidiquartiere.org/mcp --header "Authorization: Bearer <key>"
    ```
 
-Every call acts as the user who created the key and never goes beyond their space and page permissions. Someone who can't see a space can't find or read its pages with any tool.
+Every call acts as the user who created the key and never goes beyond their space and page permissions. Someone who can't see a space can't find or read its pages with any tool. A page they can't see gets exactly the same answer as a page that doesn't exist (`Not found: Page not found`), so the answer doesn't reveal that it exists.
 
 ## Tools
 
@@ -44,10 +44,12 @@ The task tools aren't part of the Docmost MCP: they give access to the [IDQ task
 ## Limits and log
 
 - Rate limit: 120 requests per minute per key and 240 per user. Beyond that, the answer is `429` with `Retry-After`.
+- A key works only for the workspace it was created in, until it expires or is revoked; anything else gets `401`.
+- Each request is answered on its own: the server keeps no sessions and opens no `subscriptions/listen` streams.
 - Every write operation (successful or not) goes into the `idq_mcp_write_log` table, with user, key, tool and arguments, stored as a JSON object (long texts are shortened). Read it with SQL, e.g. `select created_at, tool, success, arguments from idq_mcp_write_log order by created_at desc`.
 - The keys table holds only the hash: the clear-text key is never stored.
-- When a member is deactivated or removed, their keys are revoked for good, as Docmost does with sessions: they don't come back if the member is reactivated. The keys stop working at once, and are marked revoked on their next use or within five minutes.
-- Expired keys stay in the list, marked as expired, until they're revoked. They don't count toward the limit of 20 active keys per user.
+- When a member is deactivated or removed, their keys are revoked for good, as Docmost does with sessions: they don't come back if the member is reactivated. The keys stop working at once, and are marked revoked on their next use or within five minutes. That five-minute sweep needs the scheduler that Docmost registers in `TelemetryModule`; if it's missing, the server logs an error at startup (`IdqSchedulerCheck`).
+- Expired keys stay in the list, marked as expired, until they're revoked. They don't count toward the limit of 20 active keys per user, which also holds when keys are created at the same time.
 - OAuth (claude.ai connectors, "read-only" access) will come in a second phase.
 
 ## How it's built
@@ -59,6 +61,7 @@ The task tools aren't part of the Docmost MCP: they give access to the [IDQ task
   - `database/` holds the migrations.
   - `core/` gives access to Docmost's controllers and permission checks, shared with the other IDQ features.
 - The page, space, comment and search tools call the core controllers, so they run exactly the same permission checks as the web app. Among them, the only tool with a query of our own is `search_attachments`: it filters on the space each page is in now, then applies the core page permissions.
+- A tool that takes a page id or slug id first looks the page up with `IdqPageAccess.findViewablePage` (`core/`, shared with the task board): a page that is missing, deleted, in another workspace or hidden from the user always gets the same not-found answer.
 - The page history tools (`mcp/tools/page-history-tools.ts`) call the history methods of the core page controller (`/pages/history` and `/pages/history/info`), and convert the content with the same function as `get_page`. A version id passed with a page it doesn't belong to is answered as not found.
 - The task tools (`mcp/tools/task-tools.ts`) call the IDQ task services behind the endpoints of `IdqTasksController`, with the same DTOs, so they run the same checks as the board. Those services have their own label and link queries (`apps/server/src/idq/tasks/`), filtered by space membership and by the core page permissions.
 - The IDQ migrations run at startup, after Docmost's, with their own tracking table (`idq_kysely_migration`). Migrations coming from upstream never end up in the middle of ours.
@@ -86,9 +89,12 @@ npx jest --config test/jest-e2e.json --runInBand idq-mcp
 It creates an admin, a member who can write in a shared space, a member who can only read it, and a restricted space. Then it checks:
 
 - that the member finds and reads nothing from the restricted space with the read tools, writes nothing in it with the write tools, and doesn't see it through attachments whose stored space is stale or through tasks linked from a task they can see;
+- that every tool that takes a page answers a hidden page, by id or slug id, exactly like a missing one;
 - that the read-only member can't write anything in the shared space;
 - that a writer creates tasks, changes their fields and links materials, and that only workspace admins change people in charge and the label vocabulary;
 - that Markdown content (headings, lists, tables, Mermaid) is written and read back correctly, and that comments refuse what the web app can't show;
 - that an edit made with `update_page` shows up in `list_page_history` with the right author once Docmost saves the version (the test waits for it, about a minute), that versions come newest first page by page, and that no version of the restricted space can be listed or read, not even through a page the member can see;
-- that a revoked key stops working at once, and that deactivating a member revokes their keys even after reactivation;
-- that blank key names are refused and expired keys don't count toward the limit.
+- that a revoked key stops working at once, that an expired key stops working, and that deactivating a member revokes their keys even after reactivation;
+- that blank key names are refused, that expired keys don't count toward the limit, and that 25 keys created at the same time stop at the limit of 20.
+
+The unit tests (`cd apps/server && npx jest src/idq`) cover the rest of the authentication path without an instance: a key of another workspace or a request without a workspace is refused, the rate limit answers `429` with `Retry-After` per key and per user, the raw key isn't handed to the MCP SDK, and the startup check reports missing sweeps.

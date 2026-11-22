@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { PaginationOptions } from '@docmost/db/pagination/pagination-options';
+import { ListWorkspaceUsersDto } from '../../../core/workspace/dto/list-workspace-users.dto';
 import { toDto } from '../idq-mcp-core.service';
-import { defineTool } from './tool-context';
+import { cursor, spaceId } from './page-tools';
+import { defineTool, paginated } from './tool-context';
 
 export const otherTools = [
   defineTool({
@@ -12,7 +13,7 @@ export const otherTools = [
       'can read. Returns the page each file belongs to.',
     inputSchema: z.object({
       query: z.string().min(1).max(200).describe('Part of the file name'),
-      space_id: z.string().uuid().optional().describe('Restrict to one space'),
+      space_id: spaceId.optional().describe('Restrict to one space'),
       limit: z
         .number()
         .int()
@@ -48,16 +49,13 @@ export const otherTools = [
         .max(100)
         .optional()
         .describe('Max results (default 50)'),
-      cursor: z
-        .string()
-        .optional()
-        .describe('Cursor from a previous call (nextCursor)'),
+      cursor,
     }),
     write: false,
     handler: async (args, ctx) => {
       const { user, workspace } = ctx.principal;
       const result: any = await ctx.core.workspace.getWorkspaceMembers(
-        await toDto(PaginationOptions, {
+        await toDto(ListWorkspaceUsersDto, {
           limit: args.limit ?? 50,
           cursor: args.cursor,
           query: args.query,
@@ -65,16 +63,13 @@ export const otherTools = [
         user,
         workspace,
       );
-      return {
-        items: (result?.items ?? []).map((m: any) => ({
-          id: m.id,
-          name: m.name,
-          email: m.email,
-          role: m.role,
-          deactivated: Boolean(m.deactivatedAt),
-        })),
-        nextCursor: result?.meta?.hasNextPage ? result.meta.nextCursor : null,
-      };
+      return paginated(result, (m: any) => ({
+        id: m.id,
+        name: m.name,
+        email: m.email,
+        role: m.role,
+        deactivated: Boolean(m.deactivatedAt),
+      }));
     },
   }),
 

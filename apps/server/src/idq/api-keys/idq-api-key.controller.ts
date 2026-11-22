@@ -23,6 +23,7 @@ import { User, Workspace } from '@docmost/db/types/entity.types';
 import { IdqApiKeyService } from './idq-api-key.service';
 
 export class CreateIdqApiKeyDto {
+  // Trimmed here, before the checks, so a blank name is refused.
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
@@ -66,7 +67,7 @@ export class IdqApiKeyController {
     return this.apiKeyService.create(
       user.id,
       workspace.id,
-      dto.name.trim(),
+      dto.name,
       dto.expiresAt ?? null,
     );
   }

@@ -363,6 +363,30 @@ describeE2E('IDQ MCP (e2e)', () => {
       await api(reader, '/idq/api-keys/revoke', { id: res.data.id });
       await sql`delete from idq_api_keys where key_hash like 'expired-hash-%'`;
     });
+
+    it('concurrent creations cannot go over the 20-key limit', async () => {
+      const active = async () =>
+        (
+          await sql`
+            select count(*)::int as count from idq_api_keys
+            where user_id = ${adminId} and revoked_at is null`
+        )[0].count as number;
+      const before = await active();
+      const results = await Promise.all(
+        Array.from({ length: 25 }, (_, i) =>
+          api(admin, '/idq/api-keys/create', { name: `race ${i}` }),
+        ),
+      );
+      const created = results.filter((r) => r.status === 200);
+      expect(created).toHaveLength(20 - before);
+      expect(results.filter((r) => r.status === 400)).toHaveLength(
+        25 - (20 - before),
+      );
+      expect(await active()).toBe(20);
+      await sql`
+        update idq_api_keys set revoked_at = now()
+        where user_id = ${adminId} and name like 'race %'`;
+    });
   });
 
   describe('protocol', () => {
@@ -392,6 +416,12 @@ describeE2E('IDQ MCP (e2e)', () => {
           .readOnlyHint;
       expect(readOnly('list_page_history')).toBe(true);
       expect(readOnly('get_page_history')).toBe(true);
+      // Hints that only mean something for write tools aren't sent for reads
+      const annotations = (name: string) =>
+        body.result.tools.find((t: any) => t.name === name).annotations;
+      expect(annotations('get_page').destructiveHint).toBeUndefined();
+      expect(annotations('get_page').idempotentHint).toBeUndefined();
+      expect(annotations('update_page').idempotentHint).toBeUndefined();
     });
   });
 
@@ -434,6 +464,36 @@ describeE2E('IDQ MCP (e2e)', () => {
         const r = await callTool(memberKey, 'get_page', { page_id: pageId });
         expect(r.isError).toBe(true);
         expect(r.text).not.toContain(SECRET_WORD);
+      }
+    });
+
+    it('a hidden page gets the same answer as a missing page, with every tool that takes a page', async () => {
+      const missingId = '00000000-0000-4000-8000-000000000000';
+      const missingSlugId = 'nosuchpage';
+      const calls: [string, (pageId: string) => object][] = [
+        ['get_page', (id) => ({ page_id: id })],
+        ['update_page', (id) => ({ page_id: id, title: 'x' })],
+        ['list_child_pages', (id) => ({ page_id: id })],
+        ['duplicate_page', (id) => ({ page_id: id })],
+        ['move_page', (id) => ({ page_id: id, parent_page_id: null })],
+        [
+          'create_page',
+          (id) => ({ space_id: sharedSpaceId, title: 'x', parent_page_id: id }),
+        ],
+        ['get_comments', (id) => ({ page_id: id })],
+        ['create_comment', (id) => ({ page_id: id, markdown: 'x' })],
+        ['list_page_history', (id) => ({ page_id: id })],
+      ];
+      for (const [tool, args] of calls) {
+        const missing = await callTool(memberKey, tool, args(missingId));
+        expect(missing.isError).toBe(true);
+        expect(missing.text).toBe('Not found: Page not found');
+        for (const id of [secretPageId, secretPageSlugId, missingSlugId]) {
+          const r = await callTool(memberKey, tool, args(id));
+          if (r.text !== missing.text) {
+            throw new Error(`${tool}(${id}) answered "${r.text}"`);
+          }
+        }
       }
     });
 
@@ -1401,6 +1461,23 @@ describeE2E('IDQ MCP (e2e)', () => {
       const [key] = await sql`
         select revoked_at from idq_api_keys where id = ${readerKeyId}`;
       expect(key.revoked_at).not.toBeNull();
+    });
+
+    it('an expired key stops working', async () => {
+      const created = await api(admin, '/idq/api-keys/create', {
+        name: 'expiring',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      });
+      expect(created.status).toBe(200);
+      expect((await mcp(created.data.key, 'tools/list')).status).toBe(200);
+
+      await sql`
+        update idq_api_keys set expires_at = now() - interval '1 minute'
+        where id = ${created.data.id}`;
+      expect((await mcp(created.data.key, 'tools/list')).status).toBe(401);
+      // Still listed, so its owner sees it expired
+      const list = await api(admin, '/idq/api-keys');
+      expect(list.data.map((k: any) => k.id)).toContain(created.data.id);
     });
 
     it('disabling MCP blocks every key', async () => {
