@@ -221,9 +221,7 @@ export const pageTools = [
         .string()
         .min(1)
         .optional()
-        .describe(
-          `${contentDescription} Can't be empty.`,
-        ),
+        .describe(`${contentDescription} Can't be empty.`),
       operation: z
         .enum(['replace', 'append', 'prepend'])
         .optional()

@@ -281,7 +281,11 @@ describeE2E('IDQ MCP (e2e)', () => {
     // Attachments: one in the restricted space, one in the shared space, and
     // one on a restricted page whose space_id copy points to the shared space
     // (stale data must not leak).
-    await addAttachment(secretPageId, secretSpaceId, `budget-${SECRET_WORD}.pdf`);
+    await addAttachment(
+      secretPageId,
+      secretSpaceId,
+      `budget-${SECRET_WORD}.pdf`,
+    );
     await addAttachment(sharedPageId, sharedSpaceId, 'budget-public.pdf');
     await addAttachment(
       secretPageId,
@@ -573,6 +577,13 @@ describeE2E('IDQ MCP (e2e)', () => {
       });
       expect(through.isError).toBe(true);
       expect(through.text).not.toContain(SECRET_WORD);
+      // Same answer as a version that doesn't exist: nothing is revealed
+      expect(through.text).toContain('Not found');
+      const missing = await callTool(memberKey, 'get_page_history', {
+        page_id: sharedPageId,
+        version_id: '00000000-0000-4000-8000-000000000000',
+      });
+      expect(missing.text).toBe(through.text);
 
       const adminList = await callTool(adminKey, 'list_page_history', {
         page_id: secretPageId,
@@ -584,7 +595,9 @@ describeE2E('IDQ MCP (e2e)', () => {
 
   describe('a member with a read-only role', () => {
     it('can read the shared space', async () => {
-      const r = await callTool(readerKey, 'get_page', { page_id: sharedPageId });
+      const r = await callTool(readerKey, 'get_page', {
+        page_id: sharedPageId,
+      });
       expect(r.isError).toBe(false);
       expect(r.data.permissions.canEdit).toBe(false);
     });
@@ -821,7 +834,10 @@ describeE2E('IDQ MCP (e2e)', () => {
       });
       expect(first.isError).toBe(false);
       expect(first.data.items.map((v: any) => v.id)).toEqual([ids[2], ids[1]]);
-      expect(first.data.items[0].author).toEqual({ id: adminId, name: 'Admin' });
+      expect(first.data.items[0].author).toEqual({
+        id: adminId,
+        name: 'Admin',
+      });
       expect(first.data.nextCursor).toBeTruthy();
 
       const next = await callTool(readerKey, 'list_page_history', {

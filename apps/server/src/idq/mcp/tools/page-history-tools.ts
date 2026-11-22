@@ -1,9 +1,6 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { z } from 'zod';
-import {
-  PageHistoryIdDto,
-  PageIdDto,
-} from '../../../core/page/dto/page.dto';
+import { PageHistoryIdDto, PageIdDto } from '../../../core/page/dto/page.dto';
 import { jsonToMarkdown } from '../../../collaboration/collaboration.util';
 import { toDto } from '../idq-mcp-core.service';
 import {
@@ -44,15 +41,22 @@ function summarizeVersion(version: any) {
 }
 
 async function findVersion(ctx: ToolContext, page: any, versionId: string) {
-  const version: any = await ctx.core.pages.getPageHistoryInfo(
-    await toDto(PageHistoryIdDto, { historyId: versionId }),
-    ctx.principal.user,
-  );
-  // A version of another page is reported as missing, so that a version id
-  // can't be read through a page it doesn't belong to.
-  if (!version || version.pageId !== page.id) {
-    throw new NotFoundException('Version not found for this page');
+  const notFound = new NotFoundException('Version not found for this page');
+  const dto = await toDto(PageHistoryIdDto, { historyId: versionId });
+  let version: any;
+  try {
+    version = await ctx.core.pages.getPageHistoryInfo(dto, ctx.principal.user);
+  } catch (err) {
+    // The core checks the version's own page: a version of a page the user
+    // can't see gets the same answer as a missing one.
+    if (err instanceof ForbiddenException || err instanceof NotFoundException) {
+      throw notFound;
+    }
+    throw err;
   }
+  // A version of another page is reported as missing too, so that a version
+  // id can't be read through a page it doesn't belong to.
+  if (!version || version.pageId !== page.id) throw notFound;
   return version;
 }
 
