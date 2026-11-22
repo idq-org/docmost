@@ -1,12 +1,13 @@
 import { addTranslations } from "@/idq/core/i18n";
 
-// Italian translations of the IDQ MCP page (see addTranslations).
+// Italian translations of the IDQ MCP page (see addTranslations). Keys that
+// Docmost translates already are left out: its translation wins.
 const it: Record<string, string> = {
   "IDQ MCP": "MCP di IDQ",
-  "MCP and API keys": "MCP e chiavi API",
   "IDQ MCP server, compatible with clients of the Docmost MCP. Connect an AI assistant (Claude, ChatGPT, Cursor, VS Code…) to read and write pages with your permissions.":
     "Server MCP di IDQ, compatibile con i client dell'MCP di Docmost. Collega un assistente AI (Claude, ChatGPT, Cursor, VS Code…) per leggere e scrivere pagine con i tuoi permessi.",
   "Enable MCP": "Attiva MCP",
+  "Failed to load your API keys": "Impossibile caricare le tue chiavi API",
   "Lets members connect AI assistants to the workspace with their API keys. Assistants only see what each member can see.":
     "Permette ai membri di collegare assistenti AI al workspace con le proprie chiavi API. Gli assistenti vedono solo quello che vede ciascun membro.",
   "MCP is enabled for this workspace.": "L'MCP è attivo per questo workspace.",
@@ -20,7 +21,6 @@ const it: Record<string, string> = {
   "<key>": "<chiave>",
   "Replace {{placeholder}} with one of your API keys.":
     "Sostituisci {{placeholder}} con una delle tue chiavi API.",
-  "API keys": "Chiavi API",
   "Personal keys to use the MCP server. Each key acts as you: an assistant that uses it can do what you can do. Revoke a key as soon as you no longer need it.":
     "Chiavi personali per usare il server MCP. Ogni chiave agisce come te: un assistente che la usa può fare quello che puoi fare tu. Revoca una chiave appena non ti serve più.",
   "Create API key": "Crea chiave API",
@@ -44,7 +44,6 @@ const it: Record<string, string> = {
   Done: "Fatto",
   Key: "Chiave",
   Created: "Creata",
-  "Last used": "Ultimo uso",
   Expires: "Scade",
   Never: "Mai",
   Expired: "Scaduta",

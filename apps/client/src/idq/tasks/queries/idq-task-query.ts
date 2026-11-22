@@ -1,4 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  hashKey,
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { notifications } from "@mantine/notifications";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,6 +24,7 @@ import {
 } from "../services/idq-task-service";
 import { invalidatePageLabels } from "@/idq/core/page-labels";
 import { IPageTaskInfo, ITaskBoard, TaskStatus } from "../types";
+import { apiErrorMessage } from "@/idq/core/api-error";
 
 export const taskKeys = {
   all: ["idq-tasks"] as const,
@@ -26,20 +34,17 @@ export const taskKeys = {
   pages: () => [...taskKeys.all, "page"] as const,
   page: (pageId: string) => [...taskKeys.pages(), pageId] as const,
   fieldOptions: () => [...taskKeys.all, "field-options"] as const,
+  fieldOptionsFor: (spaceId: string) =>
+    [...taskKeys.fieldOptions(), spaceId] as const,
+  moves: (spaceId: string) => [...taskKeys.all, "move", spaceId] as const,
   mappings: () => [...taskKeys.all, "assignee-mappings"] as const,
 };
-
-function errorMessage(err: unknown, fallback: string): string {
-  const message = (err as { response?: { data?: { message?: unknown } } })
-    ?.response?.data?.message;
-  return typeof message === "string" ? message : fallback;
-}
 
 function useErrorNotification() {
   const { t } = useTranslation();
   return (fallback: string) => (err: unknown) =>
     notifications.show({
-      message: errorMessage(err, t(fallback)),
+      message: apiErrorMessage(err, t(fallback)),
       color: "red",
     });
 }
@@ -59,15 +64,38 @@ export function useUpdateTaskSettingsMutation() {
     mutationFn: updateTaskSettings,
     onSuccess: (settings) => {
       queryClient.setQueryData(taskKeys.settings(), settings);
-      // The same labels now mean other things.
-      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+      // The same labels now mean other things: reload the rest.
+      const settingsHash = hashKey(taskKeys.settings());
+      queryClient.invalidateQueries({
+        queryKey: taskKeys.all,
+        predicate: (query) => query.queryHash !== settingsHash,
+      });
     },
     onError: onError("Failed to save the settings"),
   });
 }
 
+type TaskMove = { pageId: string; status: TaskStatus };
+
+/** The board with the cards that are being moved already in their new column. */
+export function applyMoves(
+  board: ITaskBoard | undefined,
+  moves: TaskMove[],
+): ITaskBoard | undefined {
+  if (!board || moves.length === 0) return board;
+  const moved = new Map(moves.map((move) => [move.pageId, move.status]));
+  return {
+    ...board,
+    tasks: board.tasks.map((task) =>
+      moved.has(task.pageId)
+        ? { ...task, status: moved.get(task.pageId) as TaskStatus }
+        : task,
+    ),
+  };
+}
+
 export function useTaskBoardQuery(spaceId: string | undefined) {
-  return useQuery({
+  const board = useQuery({
     queryKey: taskKeys.board(spaceId ?? ""),
     queryFn: () => getTaskBoard(spaceId as string),
     enabled: !!spaceId,
@@ -77,6 +105,18 @@ export function useTaskBoardQuery(spaceId: string | undefined) {
     refetchOnWindowFocus: true,
     refetchInterval: 60 * 1000,
   });
+  // Moves still in progress are shown on top of the loaded board, so a
+  // reload that lands meanwhile doesn't put a card back in its old column,
+  // and a failed move only undoes that card.
+  const moves = useMutationState({
+    filters: { mutationKey: taskKeys.moves(spaceId ?? ""), status: "pending" },
+    select: (mutation) => mutation.state.variables as TaskMove,
+  });
+  const data = useMemo(
+    () => applyMoves(board.data, moves),
+    [board.data, moves],
+  );
+  return { ...board, data };
 }
 
 export function usePageTaskQuery(pageId: string | undefined) {
@@ -91,42 +131,26 @@ export function usePageTaskQuery(pageId: string | undefined) {
 
 function useInvalidateTask() {
   const queryClient = useQueryClient();
-  return (pageId: string) => {
-    queryClient.invalidateQueries({ queryKey: taskKeys.page(pageId) });
-    queryClient.invalidateQueries({ queryKey: taskKeys.boards() });
-    // Task fields are labels: refresh the labels section of the page too.
-    invalidatePageLabels(queryClient, pageId);
-  };
+  return (pageId: string) =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: taskKeys.page(pageId) }),
+      queryClient.invalidateQueries({ queryKey: taskKeys.boards() }),
+      // Task fields are labels: refresh Docmost's label views too.
+      invalidatePageLabels(queryClient, pageId),
+    ]);
 }
 
 /** Moves a card, updating the board before the server answers. */
 export function useSetTaskStatusMutation(spaceId: string | undefined) {
-  const queryClient = useQueryClient();
   const invalidate = useInvalidateTask();
   const onError = useErrorNotification();
-  const boardKey = taskKeys.board(spaceId ?? "");
 
   return useMutation({
+    // useTaskBoardQuery shows the move while this mutation is pending
+    mutationKey: taskKeys.moves(spaceId ?? ""),
     mutationFn: setTaskStatus,
-    onMutate: async ({ pageId, status }) => {
-      await queryClient.cancelQueries({ queryKey: boardKey });
-      const previous = queryClient.getQueryData<ITaskBoard>(boardKey);
-      if (previous) {
-        queryClient.setQueryData<ITaskBoard>(boardKey, {
-          ...previous,
-          tasks: previous.tasks.map((task) =>
-            task.pageId === pageId ? { ...task, status } : task,
-          ),
-        });
-      }
-      return { previous };
-    },
-    onError: (err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(boardKey, context.previous);
-      }
-      onError("Failed to move the task")(err);
-    },
+    onError: onError("Failed to move the task"),
+    // Returning the reload keeps the move pending until the board has it
     onSettled: (_data, _err, { pageId }) => invalidate(pageId),
   });
 }
@@ -171,7 +195,7 @@ export function useTaskFieldOptionsQuery(
   enabled: boolean,
 ) {
   return useQuery({
-    queryKey: [...taskKeys.fieldOptions(), spaceId ?? ""],
+    queryKey: taskKeys.fieldOptionsFor(spaceId ?? ""),
     queryFn: () => getTaskFieldOptions(spaceId as string),
     enabled: !!spaceId && enabled,
     staleTime: 30 * 1000,

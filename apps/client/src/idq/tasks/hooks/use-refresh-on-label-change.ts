@@ -12,7 +12,12 @@ export function useRefreshOnLabelChange(pageId: string) {
   usePageLabelsChange(
     pageId,
     useCallback(
-      () => queryClient.invalidateQueries({ queryKey: taskKeys.page(pageId) }),
+      () =>
+        // After an IDQ save the panel is already reloading: don't restart it.
+        queryClient.invalidateQueries(
+          { queryKey: taskKeys.page(pageId) },
+          { cancelRefetch: false },
+        ),
       [queryClient, pageId],
     ),
   );

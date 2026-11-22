@@ -1,0 +1,14 @@
+/*
+ * Compact link at the bottom of the app's navbar. Docmost's sidebars are
+ * height: 100% inside the navbar's flex column, so they would push the link
+ * out of view: let them shrink to the space left above it instead. This keeps
+ * Docmost's navbar markup untouched (one hook line in global-app-shell.tsx).
+ */
+.sidebarFooter {
+  flex: none;
+}
+
+:global(nav):has(> .sidebarFooter) > :not(.sidebarFooter) {
+  flex: 1 1 0;
+  min-height: 0;
+}

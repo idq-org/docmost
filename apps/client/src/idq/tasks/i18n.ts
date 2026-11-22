@@ -1,6 +1,7 @@
 import { addTranslations } from "@/idq/core/i18n";
 
-// Italian translations of the task board (see addTranslations).
+// Italian translations of the task board (see addTranslations). Keys that
+// Docmost translates already are left out: its translation wins.
 const it: Record<string, string> = {
   // Board
   Board: "Bacheca",
@@ -16,7 +17,6 @@ const it: Record<string, string> = {
 
   // Columns
   "To do": "Da fare",
-  "In progress": "In corso",
   "To decide": "Da decidere",
   Waiting: "In attesa",
   Blocked: "Bloccata",
@@ -30,7 +30,6 @@ const it: Record<string, string> = {
   "Change status: {{status}}": "Cambia stato: {{status}}",
   "Next deadline": "Prossima scadenza",
   Overdue: "Scaduta",
-  "{{count}} linked materials": "{{count}} materiali collegati",
   "{{count}} linked materials_one": "{{count}} materiale collegato",
   "{{count}} linked materials_other": "{{count}} materiali collegati",
   "Failed to move the task": "Spostamento del task non riuscito",
@@ -97,6 +96,8 @@ const it: Record<string, string> = {
   // Linked materials
   "Linked materials": "Materiali collegati",
   "No linked materials yet.": "Ancora nessun materiale collegato.",
+  "Failed to load the values to choose from":
+    "Impossibile caricare i valori tra cui scegliere",
   "Used in tasks": "Usata nei task",
   Add: "Aggiungi",
   Remove: "Rimuovi",
@@ -109,9 +110,7 @@ const it: Record<string, string> = {
   "No pages found": "Nessuna pagina trovata",
   "Upload a file to this task, or link a file already in Docmost.":
     "Carica un file in questo task, oppure collega un file già presente in Docmost.",
-  "Upload file": "Carica un file",
   "Search files by name": "Cerca i file per nome",
-  "No files found": "Nessun file trovato",
   Address: "Indirizzo",
   Title: "Titolo",
   "Optional: shown instead of the address":
@@ -125,3 +124,9 @@ const it: Record<string, string> = {
 };
 
 addTranslations("it-IT", it);
+
+// English plural forms of the keys that take a count
+addTranslations("en-US", {
+  "{{count}} linked materials_one": "{{count}} linked material",
+  "{{count}} linked materials_other": "{{count}} linked materials",
+});

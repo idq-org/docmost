@@ -126,6 +126,7 @@ function NewTask({
   }
 
   const submit = async () => {
+    if (saving) return;
     const title = value.trim();
     if (!title) {
       setEditing(false);
@@ -149,7 +150,8 @@ function NewTask({
       placeholder={t("Task title")}
       aria-label={t("Task title")}
       value={value}
-      disabled={saving}
+      // readOnly, not disabled: the field keeps the focus for the next title
+      readOnly={saving}
       onChange={(e) => setValue(e.currentTarget.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {

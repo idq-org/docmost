@@ -8,13 +8,10 @@ import {
   revokeIdqApiKey,
   updateIdqSettings,
 } from "../services/idq-api-key-service";
+import { apiErrorMessage } from "@/idq/core/api-error";
 
 const KEYS = ["idq-api-keys"];
 const SETTINGS = ["idq-settings"];
-
-function errorMessage(err: any, fallback: string) {
-  return err?.response?.data?.message ?? fallback;
-}
 
 export function useIdqApiKeysQuery() {
   return useQuery({ queryKey: KEYS, queryFn: getIdqApiKeys });
@@ -28,7 +25,7 @@ export function useCreateIdqApiKeyMutation() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: KEYS }),
     onError: (err) =>
       notifications.show({
-        message: errorMessage(err, t("Failed to create API key")),
+        message: apiErrorMessage(err, t("Failed to create API key")),
         color: "red",
       }),
   });
@@ -45,7 +42,7 @@ export function useRevokeIdqApiKeyMutation() {
     },
     onError: (err) =>
       notifications.show({
-        message: errorMessage(err, t("Failed to revoke API key")),
+        message: apiErrorMessage(err, t("Failed to revoke API key")),
         color: "red",
       }),
   });
@@ -63,7 +60,7 @@ export function useUpdateIdqSettingsMutation() {
     onSuccess: (data) => queryClient.setQueryData(SETTINGS, data),
     onError: (err) =>
       notifications.show({
-        message: errorMessage(err, t("Failed to update settings")),
+        message: apiErrorMessage(err, t("Failed to update settings")),
         color: "red",
       }),
   });

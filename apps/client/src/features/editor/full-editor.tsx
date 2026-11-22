@@ -1,5 +1,4 @@
 import classes from "@/features/editor/styles/editor.module.css";
-import { IdqPageBlocks } from "@/idq/page-blocks"; // IDQ: our blocks under the title
 import React, { useEffect } from "react";
 import { TitleEditor } from "@/features/editor/title-editor";
 import PageEditor from "@/features/editor/page-editor";
@@ -37,6 +36,7 @@ import clsx from "clsx";
 import { currentPageEditModeAtom } from "@/features/editor/atoms/editor-atoms.ts";
 import { EmptyPageGetStarted } from "@/features/editor/components/empty-page/empty-page-get-started";
 import { AddCoverButton } from "@/features/page-cover/components/add-cover-button.tsx";
+import { IdqPageBlocks } from "@/idq/page-blocks"; // IDQ: our blocks under the title
 
 const MemoizedTitleEditor = React.memo(TitleEditor);
 const MemoizedPageEditor = React.memo(PageEditor);

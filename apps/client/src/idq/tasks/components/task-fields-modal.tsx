@@ -9,6 +9,7 @@ import {
   Select,
   Stack,
   TagsInput,
+  Text,
   TextInput,
   Tooltip,
 } from "@mantine/core";
@@ -37,14 +38,15 @@ export function TaskFieldsModal({
   onClose,
 }: TaskFieldsModalProps) {
   const { t } = useTranslation();
-  const { data: options, isLoading } = useTaskFieldOptionsQuery(
-    spaceId,
-    opened,
-  );
+  const { data: options, isError } = useTaskFieldOptionsQuery(spaceId, opened);
 
   return (
     <Modal opened={opened} onClose={onClose} title={t("Edit task")}>
-      {isLoading || !options ? (
+      {isError ? (
+        <Text size="sm" c="red">
+          {t("Failed to load the values to choose from")}
+        </Text>
+      ) : !options ? (
         <Group justify="center" py="md">
           <Loader size="sm" />
         </Group>

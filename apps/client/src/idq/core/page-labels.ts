@@ -9,9 +9,19 @@ import type { ILabel, IPagination } from "./docmost";
 /** Key of Docmost's cache of a page's labels (usePageLabelsQuery). */
 export const pageLabelsKey = (pageId: string) => ["page-labels", pageId];
 
-/** Refreshes the labels section of a page after IDQ changed its labels. */
+/**
+ * Refreshes Docmost's label views after IDQ changed the labels of a page:
+ * the labels section of the page, and the caches Docmost's own label
+ * mutations refresh too (the workspace's labels, the pages of a label and
+ * its details).
+ */
 export function invalidatePageLabels(queryClient: QueryClient, pageId: string) {
-  return queryClient.invalidateQueries({ queryKey: pageLabelsKey(pageId) });
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: pageLabelsKey(pageId) }),
+    queryClient.invalidateQueries({ queryKey: ["workspace-labels"] }),
+    queryClient.invalidateQueries({ queryKey: ["label-pages"] }),
+    queryClient.invalidateQueries({ queryKey: ["label-info"] }),
+  ]);
 }
 
 /**

@@ -33,6 +33,7 @@ export { uploadFile } from "@/features/page/services/page-service.ts";
 export { invalidateOnCreatePage } from "@/features/page/queries/page-query.ts";
 export { treeDataAtom } from "@/features/page/tree/atoms/tree-data-atom";
 export { treeModel } from "@/features/page/tree/model/tree-model";
+export { spaceRoots, updateSpaceRoots } from "@/features/page/tree/utils/utils";
 export type { SpaceTreeNode } from "@/features/page/tree/types";
 export { useQueryEmit } from "@/features/websocket/use-query-emit";
 
