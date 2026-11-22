@@ -1,14 +1,18 @@
 name: CI
 
-# Checks a PR before it goes into idq:
-# - docker-build: the Docker image builds. This check is required by the idq ruleset.
+# Checks a PR before it goes into idq. The idq ruleset requires all three:
+# - docker-build: the Docker image builds (this also type-checks the code);
+# - unit-tests: the IDQ unit tests of server and client pass;
 # - upstream-files: we only modify the Docmost files listed in
 #   .github/idq-upstream-files.txt.
 #
-# Both check the PR merge result, that is idq with the PR merged in. Sync upstream
-# PRs opened with GITHUB_TOKEN don't trigger workflows: for those, Sync upstream
-# runs this workflow by hand with the PR number, and the result is written as a
-# "docker-build" status on the PR head commit.
+# They check the PR merge result, that is idq with the PR merged in. PRs opened
+# with GITHUB_TOKEN (Sync upstream without SYNC_TOKEN) don't trigger workflows:
+# for those, Sync upstream runs this workflow by hand with the PR number, and
+# the results are written as commit statuses with the same names on the PR head.
+#
+# Actions are pinned to a commit SHA, with the version in a comment: to update
+# one, take the SHA of the new release tag.
 
 on:
   pull_request:
@@ -22,31 +26,39 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
-  statuses: write
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || inputs.pr }}
   cancel-in-progress: true
 
 jobs:
-  docker-build:
+  # Runs started by hand only. GitHub computes the merge ref asynchronously and
+  # doesn't update it while the PR has conflicts: wait for it, refuse a
+  # conflicting PR, and pass the checked merge commit to the other jobs.
+  merge-ref:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR: ${{ inputs.pr }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    outputs:
+      head: ${{ steps.pr.outputs.head }}
+      merge: ${{ steps.merge.outputs.sha }}
     steps:
-      # GitHub computes the merge ref asynchronously and doesn't update it while
-      # the PR has conflicts: wait for it and refuse a conflicting PR.
-      - name: Find the PR head and mark it as pending
+      - name: Find the PR head and mark the checks as pending
         id: pr
-        if: github.event_name == 'workflow_dispatch'
         run: |
-          sha=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          gh api "repos/$GH_REPO/statuses/$sha" -f state=pending -f context=docker-build -f target_url="$RUN_URL" >/dev/null
+          head=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          for check in docker-build unit-tests upstream-files; do
+            gh api "repos/$GH_REPO/statuses/$head" -f state=pending -f context="$check" -f target_url="$RUN_URL" >/dev/null
+          done
           for _ in $(seq 20); do
             mergeable=$(gh pr view "$PR" --json mergeable --jq .mergeable)
             [ "$mergeable" != UNKNOWN ] && break
@@ -57,45 +69,88 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr) || github.ref }}
+          ref: refs/pull/${{ inputs.pr }}/merge
 
       - name: Check that the merge ref is up to date with the PR head
-        if: github.event_name == 'workflow_dispatch'
+        id: merge
         env:
-          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
         run: |
           # The merge commit's parents are idq and the PR head.
           if ! git cat-file -p HEAD | grep -qx "parent $HEAD_SHA"; then
             echo "::error::refs/pull/$PR/merge doesn't contain the PR head $HEAD_SHA yet: rerun the workflow in a minute"
             exit 1
           fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v4
+  docker-build:
+    needs: merge-ref
+    # On PRs merge-ref is skipped; by hand, it must have succeeded.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.merge-ref.outputs.merge || github.ref }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build the image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false
           cache-from: type=gha,scope=idq-ci
           cache-to: type=gha,scope=idq-ci,mode=max
 
-      - name: Write the result on the PR head
-        if: always() && github.event_name == 'workflow_dispatch' && steps.pr.outputs.sha != ''
-        env:
-          HEAD_SHA: ${{ steps.pr.outputs.sha }}
-        run: |
-          state=$([ "${{ job.status }}" = success ] && echo success || echo failure)
-          gh api "repos/$GH_REPO/statuses/$HEAD_SHA" -f state="$state" -f context=docker-build -f target_url="$RUN_URL" >/dev/null
-
-  upstream-files:
-    if: github.event_name == 'pull_request'
+  unit-tests:
+    needs: merge-ref
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.merge-ref.outputs.merge || github.ref }}
+
+      # The same Node major as the Docker image (Dockerfile)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - name: Enable pnpm
+        id: pnpm
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+        run: |
+          corepack enable
+          echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm.outputs.store }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Server unit tests
+        working-directory: apps/server
+        run: pnpm exec jest src/idq
+
+      - name: Client unit tests
+        working-directory: apps/client
+        run: pnpm exec vitest run src/idq
+
+  upstream-files:
+    needs: merge-ref
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.merge-ref.outputs.merge || github.ref }}
           fetch-depth: 0
 
       # The merge base with main is a pure Docmost commit: the files that the PR
@@ -112,14 +167,41 @@ jobs:
           echo "Docmost files modified by idq with this PR (compared to docmost/docmost@${base:0:7}):"
           sed 's/^/  /' "$RUNNER_TEMP/modified"
 
-          comm -13 "$RUNNER_TEMP/modified" "$RUNNER_TEMP/listed" | while read -r f; do
+          comm -13 "$RUNNER_TEMP/modified" "$RUNNER_TEMP/listed" | while IFS= read -r f; do
             echo "::warning file=$list::$f is listed but no longer modified: remove it from the list"
           done
 
-          unlisted=$(comm -23 "$RUNNER_TEMP/modified" "$RUNNER_TEMP/listed")
-          if [ -n "$unlisted" ]; then
-            for f in $unlisted; do
+          comm -23 "$RUNNER_TEMP/modified" "$RUNNER_TEMP/listed" > "$RUNNER_TEMP/unlisted"
+          if [ -s "$RUNNER_TEMP/unlisted" ]; then
+            while IFS= read -r f; do
               echo "::error file=$f::Docmost file modified but not listed in $list"
-            done
+            done < "$RUNNER_TEMP/unlisted"
             exit 1
           fi
+
+  # Runs started by hand only: write each result as a status on the PR head,
+  # where the ruleset looks for it.
+  report:
+    needs: [merge-ref, docker-build, unit-tests, upstream-files]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && needs.merge-ref.outputs.head != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ needs.merge-ref.outputs.head }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      DOCKER_BUILD: ${{ needs.docker-build.result }}
+      UNIT_TESTS: ${{ needs.unit-tests.result }}
+      UPSTREAM_FILES: ${{ needs.upstream-files.result }}
+    steps:
+      - name: Write the results on the PR head
+        run: |
+          report() {
+            state=$([ "$2" = success ] && echo success || echo failure)
+            gh api "repos/$GH_REPO/statuses/$HEAD_SHA" -f state="$state" -f context="$1" -f target_url="$RUN_URL" >/dev/null
+          }
+          report docker-build "$DOCKER_BUILD"
+          report unit-tests "$UNIT_TESTS"
+          report upstream-files "$UPSTREAM_FILES"

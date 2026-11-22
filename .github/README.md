@@ -55,9 +55,12 @@ gh repo sync idq-org/docmost --branch main
 
 Docmost runs at https://app.informaticidiquartiere.org, on the Hostinger VPS, in `/srv/docmost` (compose, `.env` with the secrets, nightly database backups in `backups/`).
 
-- [`CI`](workflows/idq-ci.yml) runs on every PR to `idq`, on the PR merge result (`idq` with the PR merged in):
-  - `docker-build` builds the Docker image. It is required to merge. For Sync upstream PRs opened without `SYNC_TOKEN`, Sync upstream starts it itself (or by hand: *Actions → CI → Run workflow* with the PR number).
+- [`CI`](workflows/idq-ci.yml) runs on every PR to `idq`, on the PR merge result (`idq` with the PR merged in). The `idq` ruleset requires all three checks to merge:
+  - `docker-build` builds the Docker image, which also type-checks the code;
+  - `unit-tests` runs the IDQ unit tests of server and client (see [Tests](#tests)), with the Node version of the image;
   - `upstream-files` fails if the PR modifies a Docmost file that isn't listed in [`idq-upstream-files.txt`](idq-upstream-files.txt) (see [Keeping upstream merges easy](#keeping-upstream-merges-easy)).
+
+  For Sync upstream PRs opened without `SYNC_TOKEN`, Sync upstream starts CI itself (or by hand: *Actions → CI → Run workflow* with the PR number), and the results are written as statuses on the PR head. The actions CI uses are pinned to a commit SHA, with the version in a comment: to update one, use the SHA of the new release tag.
 - [`Deploy`](workflows/idq-deploy.yml) runs on every push to `idq` (that is, on every merge), except when only files in `.github/` change, and runs `/srv/docmost/deploy.sh` on the VPS: it brings the code to `origin/idq` and rebuilds the containers. It can be rerun by hand from *Actions → Deploy → Run workflow*.
 
 Never edit `/srv/docmost/src` by hand on the VPS: every deploy resets it to `origin/idq`.
@@ -76,9 +79,9 @@ The `apps/server/src/ee` submodule points to Docmost's Enterprise edition, which
 
 ### Tests
 
-The IDQ tests run by hand, not in CI: run them before opening a PR, and after merging an update from Docmost.
+The unit tests run in CI as well. The end-to-end tests run only by hand: run them before opening a PR that changes server code, and after merging an update from Docmost.
 
-Unit tests:
+Unit tests (the client's need Node 25 or later, like the Docker image's Node 26: Node 24 rejects an option vitest passes):
 
 ```sh
 pnpm install
@@ -162,7 +165,7 @@ That code can be used in production only with a subscription, and modifications 
 
 - Our code is under AGPL-3.0, like the repo.
 - Keep the license files and copyright notices of Docmost and of the libraries.
-- As soon as the app running on the VPS is modified, its interface must offer users a link to the source code (AGPL section 13): see issue [#8](https://github.com/idq-org/docmost/issues/8).
+- Since the app running on the VPS is modified, its interface must offer users a link to the source code (AGPL section 13). It links the source of the running commit at the bottom of the app's sidebar, on the login pages and on public pages (`apps/client/src/idq/source-link/`): every new layout must keep it.
 
 ### Trademark and sources
 
@@ -174,10 +177,9 @@ Every PR that adds features states in its description that it complies with this
 
 ## Planned features
 
-Issues labelled [`idq`](https://github.com/idq-org/docmost/issues?q=is%3Aopen+label%3Aidq), in the proposed order. Several issues can be worked on in parallel, if there are people to work on them.
+Open issues labelled [`idq`](https://github.com/idq-org/docmost/issues?q=is%3Aopen+label%3Aidq):
 
-1. [#8](https://github.com/idq-org/docmost/issues/8): link to the source code in the interface, before or together with the first feature
-2. [#5](https://github.com/idq-org/docmost/issues/5): built-in MCP, compatible with clients of the Docmost MCP (API keys first, then `/mcp`, then OAuth)
-3. [#3](https://github.com/idq-org/docmost/issues/3): kanban board for tasks, with linked materials
-4. [#12](https://github.com/idq-org/docmost/issues/12): deadlines and reminders on tasks and pages (can be done in parallel with #3)
-5. [#4](https://github.com/idq-org/docmost/issues/4): members map
+- [#12](https://github.com/idq-org/docmost/issues/12): deadlines and reminders on tasks and pages;
+- [#32](https://github.com/idq-org/docmost/issues/32): page history in the MCP. The read tools are done; whether to add a restore tool is still open.
+
+Already done: the source code link (#8), the MCP (#5, #27: [MCP.md](MCP.md)), the task board (#3: [TASKS.md](TASKS.md)) and the members map (#4: [MEMBER-MAP.md](MEMBER-MAP.md)).
