@@ -14,6 +14,7 @@ import { IdqTaskAssigneesService } from '../tasks/idq-task-assignees.service';
 import { IdqTaskSettingsService } from '../tasks/idq-task-settings.service';
 import { registerTools, ToolDefinition } from './tools/tool-context';
 import { pageTools } from './tools/page-tools';
+import { pageHistoryTools } from './tools/page-history-tools';
 import { spaceTools } from './tools/space-tools';
 import { commentTools } from './tools/comment-tools';
 import { otherTools } from './tools/other-tools';
@@ -21,6 +22,7 @@ import { taskTools } from './tools/task-tools';
 
 export const IDQ_MCP_TOOLS: ToolDefinition<any>[] = [
   ...pageTools,
+  ...pageHistoryTools,
   ...spaceTools,
   ...commentTools,
   ...otherTools,
@@ -33,7 +35,8 @@ const SERVER_INSTRUCTIONS =
   'IDQ knowledge base. Every tool acts as the user who owns the API key and ' +
   'only sees what that user can see. Page and comment content is Markdown. ' +
   'Use list_spaces to find spaces, search_pages to find pages, and get_page ' +
-  'to read one. Each space has a task board: a task is a page with a status. ' +
+  'to read one. list_page_history and get_page_history read the saved ' +
+  'versions of a page. Each space has a task board: a task is a page with a status. ' +
   'Use list_tasks to read a board, get_task for the fields and linked ' +
   'materials of a task, and update_task to change them.';
 

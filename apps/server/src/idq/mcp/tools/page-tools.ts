@@ -23,14 +23,14 @@ export const pageId = z
     'Page ID (UUID) or the short slug ID shown at the end of page URLs',
   );
 export const spaceId = z.string().uuid().describe('Space ID (UUID)');
-const limit = z
+export const limit = z
   .number()
   .int()
   .min(1)
   .max(100)
   .optional()
   .describe('Maximum number of results (1-100, default 20)');
-const cursor = z
+export const cursor = z
   .string()
   .optional()
   .describe('Pagination cursor returned as nextCursor by a previous call');
@@ -58,14 +58,14 @@ function paginated(ctx: ToolContext, result: any, map = summarizePage) {
   };
 }
 
-async function pagination(args: { limit?: number; cursor?: string }) {
+export async function pagination(args: { limit?: number; cursor?: string }) {
   return toDto(PaginationOptions, {
     limit: args.limit ?? 20,
     cursor: args.cursor,
   });
 }
 
-async function findVisiblePage(ctx: ToolContext, id: string) {
+export async function findVisiblePage(ctx: ToolContext, id: string) {
   const page = await ctx.core.pageRepo.findById(id);
   if (!page || page.deletedAt) throw new NotFoundException('Page not found');
   await ctx.core.pageAccess.validateCanView(page, ctx.principal.user);

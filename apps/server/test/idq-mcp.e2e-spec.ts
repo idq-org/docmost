@@ -35,6 +35,9 @@ const EXPECTED_TOOLS = [
   'search_attachments',
   'list_workspace_members',
   'get_current_user',
+  // IDQ: page history (issue #32)
+  'list_page_history',
+  'get_page_history',
   'list_tasks',
   'get_task',
   'get_task_options',
@@ -174,6 +177,17 @@ describeE2E('IDQ MCP (e2e)', () => {
     });
     expect(accepted.status).toBe(200);
     return login(email);
+  }
+
+  // Saves a version of a page as it is now, like Docmost's history recorder.
+  async function addVersion(pageId: string, userId: string): Promise<string> {
+    const [{ id }] = await sql`
+      insert into page_history
+        (page_id, slug_id, title, icon, content, space_id, workspace_id, last_updated_by_id)
+      select id, slug_id, title, icon, content, space_id, workspace_id, ${userId}
+      from pages where id = ${pageId}
+      returning id`;
+    return id;
   }
 
   async function addAttachment(pageId: string, spaceId: string, name: string) {
@@ -358,7 +372,7 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect(body.result.serverInfo.name).toBe('idq-docmost');
     });
 
-    it('lists the 20 tools with the Docmost names and the 11 task tools', async () => {
+    it('lists the 20 tools with the Docmost names, the 2 history tools and the 11 task tools', async () => {
       const { body } = await mcp(memberKey, 'tools/list');
       const names = body.result.tools.map((t: any) => t.name).sort();
       expect(names).toEqual(EXPECTED_TOOLS);
@@ -369,6 +383,11 @@ describeE2E('IDQ MCP (e2e)', () => {
       expect(destructive('set_assignee_mapping')).toBe(true);
       expect(destructive('update_task')).toBe(true);
       expect(destructive('create_task')).toBe(false);
+      const readOnly = (name: string) =>
+        body.result.tools.find((t: any) => t.name === name).annotations
+          .readOnlyHint;
+      expect(readOnly('list_page_history')).toBe(true);
+      expect(readOnly('get_page_history')).toBe(true);
     });
   });
 
@@ -528,6 +547,38 @@ describeE2E('IDQ MCP (e2e)', () => {
       const r = await callTool(adminKey, 'get_page', { page_id: secretPageId });
       expect(r.isError).toBe(false);
       expect(r.data.content).toContain(SECRET_WORD);
+    });
+
+    it('list_page_history and get_page_history show none of its versions', async () => {
+      const versionId = await addVersion(secretPageId, adminId);
+      for (const pageId of [secretPageId, secretPageSlugId]) {
+        const list = await callTool(memberKey, 'list_page_history', {
+          page_id: pageId,
+        });
+        expect(list.isError).toBe(true);
+        expect(list.text).not.toContain(SECRET_WORD);
+        expect(list.text).not.toContain(versionId);
+
+        const one = await callTool(memberKey, 'get_page_history', {
+          page_id: pageId,
+          version_id: versionId,
+        });
+        expect(one.isError).toBe(true);
+        expect(one.text).not.toContain(SECRET_WORD);
+      }
+      // Not even through a page the member can read
+      const through = await callTool(memberKey, 'get_page_history', {
+        page_id: sharedPageId,
+        version_id: versionId,
+      });
+      expect(through.isError).toBe(true);
+      expect(through.text).not.toContain(SECRET_WORD);
+
+      const adminList = await callTool(adminKey, 'list_page_history', {
+        page_id: secretPageId,
+      });
+      expect(adminList.isError).toBe(false);
+      expect(adminList.data.items.map((v: any) => v.id)).toContain(versionId);
     });
   });
 
@@ -713,6 +764,100 @@ describeE2E('IDQ MCP (e2e)', () => {
       const [{ count }] = await sql`
         select count(*)::int as count from comments where page_id = ${pageId}`;
       expect(count).toBe(1);
+    });
+  });
+
+  describe('page history', () => {
+    it('an update_page edit is saved as a version with its author', async () => {
+      const created = await callTool(memberKey, 'create_page', {
+        space_id: sharedSpaceId,
+        title: 'History',
+        markdown: 'First text',
+      });
+      const pageId = created.data.id;
+      const updated = await callTool(memberKey, 'update_page', {
+        page_id: pageId,
+        markdown: '## Second text\n\n- item',
+      });
+      expect(updated.isError).toBe(false);
+
+      // Docmost saves a version once a page created less than 5 minutes ago
+      // has been quiet for 1 minute (PAGE_HISTORY_INTERVAL for older pages).
+      let items: any[] = [];
+      const deadline = Date.now() + 150_000;
+      while (Date.now() < deadline) {
+        const list = await callTool(memberKey, 'list_page_history', {
+          page_id: created.data.slugId,
+        });
+        expect(list.isError).toBe(false);
+        items = list.data.items;
+        if (items.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+      expect(items.length).toBeGreaterThan(0);
+      expect(items[0].author).toEqual({ id: memberId, name: 'Member' });
+      expect(items[0].title).toBe('History');
+
+      const version = await callTool(memberKey, 'get_page_history', {
+        page_id: pageId,
+        version_id: items[0].id,
+      });
+      expect(version.isError).toBe(false);
+      expect(version.data.pageId).toBe(pageId);
+      expect(version.data.content).toMatch(/^## Second text/m);
+      expect(version.data.content).toMatch(/^[-*] item/m);
+      expect(version.data.content).not.toContain('First text');
+    }, 180_000);
+
+    it('lists versions newest first, page by page', async () => {
+      const ids = [
+        await addVersion(sharedPageId, adminId),
+        await addVersion(sharedPageId, adminId),
+        await addVersion(sharedPageId, adminId),
+      ];
+      const first = await callTool(readerKey, 'list_page_history', {
+        page_id: sharedPageId,
+        limit: 2,
+      });
+      expect(first.isError).toBe(false);
+      expect(first.data.items.map((v: any) => v.id)).toEqual([ids[2], ids[1]]);
+      expect(first.data.items[0].author).toEqual({ id: adminId, name: 'Admin' });
+      expect(first.data.nextCursor).toBeTruthy();
+
+      const next = await callTool(readerKey, 'list_page_history', {
+        page_id: sharedPageId,
+        limit: 2,
+        cursor: first.data.nextCursor,
+      });
+      expect(next.data.items.map((v: any) => v.id)).toContain(ids[0]);
+    });
+
+    it('get_page_history refuses a version of another page and bad ids', async () => {
+      const versionId = await addVersion(sharedPageId, adminId);
+      const created = await callTool(memberKey, 'create_page', {
+        space_id: sharedSpaceId,
+        title: 'Other page',
+        markdown: 'Other',
+      });
+      const wrongPage = await callTool(memberKey, 'get_page_history', {
+        page_id: created.data.id,
+        version_id: versionId,
+      });
+      expect(wrongPage.isError).toBe(true);
+      expect(wrongPage.text).toContain('Not found');
+
+      const badId = await callTool(memberKey, 'get_page_history', {
+        page_id: sharedPageId,
+        version_id: 'not-a-uuid',
+      });
+      expect(badId.isError).toBe(true);
+    });
+
+    it('reading the history is not a write', async () => {
+      const [{ count }] = await sql`
+        select count(*)::int as count from idq_mcp_write_log
+        where tool in ('list_page_history', 'get_page_history')`;
+      expect(count).toBe(0);
     });
   });
 
