@@ -47,6 +47,10 @@ export function isBetaPublicSpaces(): boolean {
   return castToBoolean(getConfigValue("BETA_PUBLIC_SPACES"));
 }
 
+export function isBetaBaseForms(): boolean {
+  return castToBoolean(getConfigValue("BETA_BASE_FORMS"));
+}
+
 export function isUnsplashEnabled(): boolean {
   return castToBoolean(getConfigValue("UNSPLASH_ENABLED"));
 }
@@ -67,6 +71,10 @@ export function getAvatarUrl(
 
 export function getSpaceUrl(spaceSlug: string) {
   return "/s/" + spaceSlug;
+}
+
+export function getUserProfileUrl(userId: string) {
+  return "/people/" + userId;
 }
 
 export function getFileUrl(src: string) {

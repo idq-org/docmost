@@ -11,8 +11,10 @@ type IdqNavItem = {
   label: string;
   icon: ElementType;
   path: string;
-  // Docmost's own entries can be disabled: the field keeps the list's type
+  // Docmost's own entries can be disabled and prefetch on hover: the optional
+  // fields keep the list's type
   disabled?: boolean;
+  prefetch?: () => void;
 };
 
 export const idqGlobalNavItems: IdqNavItem[] = [
