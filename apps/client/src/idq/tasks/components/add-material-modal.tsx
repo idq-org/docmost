@@ -195,7 +195,7 @@ function AttachmentPicker({
     setUploading(true);
     try {
       // The file becomes an attachment of the task page.
-      const attachment = await uploadFile(file, taskPageId);
+      const attachment = await uploadFile(file, { pageId: taskPageId });
       link(attachment.id);
     } catch (err: any) {
       notifications.show({
