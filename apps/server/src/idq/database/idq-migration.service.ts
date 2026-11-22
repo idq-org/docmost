@@ -20,6 +20,10 @@ export function createIdqMigrator(db: KyselyDB): Migrator {
     }),
     migrationTableName: IDQ_MIGRATION_TABLE,
     migrationLockTableName: IDQ_MIGRATION_LOCK_TABLE,
+    // IDQ features are developed on parallel branches: a migration merged
+    // later can be named before one already applied. Each of ours only
+    // touches its own tables, so run whatever hasn't run yet.
+    allowUnorderedMigrations: true,
   });
 }
 

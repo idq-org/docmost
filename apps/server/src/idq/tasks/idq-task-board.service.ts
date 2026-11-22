@@ -12,6 +12,12 @@ import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { PagePermissionRepo } from '@docmost/db/repos/page/page-permission.repo';
 import { Page, User, Workspace } from '@docmost/db/types/entity.types';
 import { CreatePageDto } from '../../core/page/dto/create-page.dto';
+import {
+  AUDIT_SERVICE,
+  IAuditService,
+} from '../../integrations/audit/audit.service';
+import { AuditEvent, AuditResource } from '../../common/events/audit-events';
+import { getPageTitle } from '../../common/helpers';
 import { IdqDocmost } from '../core/idq-docmost.service';
 import { IdqPageAccess } from '../core/idq-page-access.service';
 import { IdqTaskLabelStore, StoredTask } from './idq-task-label-store';
@@ -27,7 +33,6 @@ import {
   TaskDeadline,
 } from './idq-task-deadlines';
 import {
-  LABEL_NAME_MAX_LENGTH,
   ParsedTaskLabels,
   TASK_FIELDS,
   TaskField,
@@ -45,10 +50,10 @@ import { IdqTaskSettingsService } from './idq-task-settings.service';
 import { newTaskContent } from './idq-task-template';
 
 /**
- * Emitted when a task is created or changes column through the board or the
- * task panel, for other IDQ features (e.g. #12 closes the deadlines of a
- * task moved to "done"). Status labels edited in Docmost's own labels
- * section are not reported.
+ * Emitted when a task is created or really changes column through this
+ * service (the board, the task panel and the MCP task tools), for other IDQ
+ * features (e.g. #12 closes the deadlines of a task moved to "done"). Status
+ * labels edited in Docmost's own labels section are not reported.
  */
 export const IDQ_TASK_STATUS_CHANGED = 'idq.task.status-changed';
 
@@ -124,6 +129,11 @@ export type TaskFieldOptions = {
   members: WorkspaceMember[];
 };
 
+type StatusChange = {
+  previousStatus: TaskStatus | null;
+  status: TaskStatus | null;
+};
+
 type StoredTaskPage = Pick<
   Page,
   'id' | 'slugId' | 'title' | 'icon' | 'spaceId' | 'createdAt' | 'updatedAt'
@@ -163,6 +173,7 @@ export class IdqTaskBoardService {
     private readonly links: IdqTaskLinksService,
     private readonly assignees: IdqTaskAssigneesService,
     private readonly settings: IdqTaskSettingsService,
+    @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
     @Optional()
     @Inject(IDQ_TASK_DEADLINE_SOURCE)
     private readonly deadlineSource?: IdqTaskDeadlineSource,
@@ -292,7 +303,16 @@ export class IdqTaskBoardService {
     const { canEdit } = await this.access.spacePermissions(user, input.spaceId);
     if (!canEdit) throw new ForbiddenException();
 
-    const content = input.content ?? newTaskContent(user.locale);
+    // Empty content gets the template too, as no content does.
+    const markdown = input.content?.trim()
+      ? input.content
+      : newTaskContent(user.locale);
+    // Converted here, once: sent as JSON, Docmost's controller doesn't
+    // convert the new page back to Markdown for its response.
+    const content = await this.docmost.pageService.parseProsemirrorContent(
+      markdown,
+      'markdown',
+    );
     const vocabulary = await this.settings.vocabulary(workspace.id);
     const parentPageId = await this.labelStore.usualTaskParent(
       input.spaceId,
@@ -307,7 +327,8 @@ export class IdqTaskBoardService {
           spaceId: input.spaceId,
           title: input.title,
           parentPageId: parent ?? undefined,
-          ...(content ? { content, format: 'markdown' as const } : {}),
+          content,
+          format: 'json' as const,
         }),
         user,
         workspace,
@@ -322,13 +343,21 @@ export class IdqTaskBoardService {
       page = await create(null);
     }
 
-    await this.labelStore.setStatus(
-      page.id,
-      workspace.id,
-      vocabulary,
-      input.status,
-    );
-    this.emitStatusChanged(page, workspace, user, input.status, null);
+    let change: StatusChange;
+    try {
+      change = await this.labelStore.writeFields(
+        page.id,
+        workspace.id,
+        vocabulary,
+        { status: input.status },
+      );
+    } catch (err) {
+      // Without its status the page would be missing from the board, and a
+      // retry would create it twice.
+      await this.removeCreatedPage(page, workspace);
+      throw err;
+    }
+    this.emitStatusChanged(page, workspace, user, change);
 
     const fields = await this.labelStore.findPageTask(page.id, vocabulary);
     const [task] = await this.toBoardTasks(
@@ -372,10 +401,9 @@ export class IdqTaskBoardService {
   ): Promise<TaskFieldOptions> {
     await this.access.spacePermissions(user, spaceId);
     const vocabulary = await this.settings.vocabulary(workspace.id);
-    const [used, resolve, members] = await Promise.all([
+    const [used, { resolve, members }] = await Promise.all([
       this.usedValues(user, workspace.id, vocabulary, spaceId),
-      this.assignees.resolver(workspace.id),
-      this.assignees.members(workspace.id),
+      this.assignees.pickerOptions(workspace.id),
     ]);
     return {
       priorities: [...new Set([...vocabulary.priorities, ...used.priority])],
@@ -387,16 +415,17 @@ export class IdqTaskBoardService {
 
   /**
    * The person-in-charge values the admin can see in use, and who each one
-   * stands for. Workspace admins only: checked before reading any label.
+   * stands for. Workspace admins only: listMappings checks it before
+   * reading any label.
    */
   async assigneeMappings(
     user: User,
     workspace: Workspace,
   ): Promise<AssigneeMappingRow[]> {
-    this.assignees.assertAdmin(user, workspace);
-    const vocabulary = await this.settings.vocabulary(workspace.id);
-    const used = await this.usedValues(user, workspace.id, vocabulary);
-    return this.assignees.listMappings(user, workspace, used.assignee);
+    return this.assignees.listMappings(user, workspace, async () => {
+      const vocabulary = await this.settings.vocabulary(workspace.id);
+      return (await this.usedValues(user, workspace.id, vocabulary)).assignee;
+    });
   }
 
   /**
@@ -462,41 +491,26 @@ export class IdqTaskBoardService {
     user: User,
     workspace: Workspace,
   ): Promise<{ page: Page; vocabulary: TaskVocabulary }> {
-    const { page, fields, vocabulary } = await this.findEditableTask(
+    const { page, vocabulary } = await this.findEditableTask(
       pageId,
       user,
       workspace,
     );
 
-    const changes: Partial<Record<TaskField, string[]>> = {};
-    const newStatus =
-      input.status !== undefined && input.status !== fields.status
-        ? input.status
-        : null;
-    if (newStatus) changes.status = [vocabulary.statuses[newStatus][0]];
-    if (input.priority !== undefined) {
-      changes.priority = input.priority ? [input.priority] : [];
-    }
-    if (input.areas !== undefined) changes.area = input.areas;
-    if (input.assignees !== undefined) changes.assignee = input.assignees;
-
-    for (const [field, values] of Object.entries(changes)) {
-      for (const value of values) {
-        const name = vocabulary.prefixes[field as TaskField] + value;
-        if (name.length > LABEL_NAME_MAX_LENGTH) {
-          throw new BadRequestException(`"${value}" is too long`);
-        }
-      }
-    }
-    await this.labelStore.replaceFields(
+    const { status, priority, areas, assignees } = input;
+    const change = await this.labelStore.writeFields(
       page.id,
       workspace.id,
       vocabulary,
-      changes,
+      {
+        status,
+        priority:
+          priority === undefined ? undefined : priority ? [priority] : [],
+        area: areas,
+        assignee: assignees,
+      },
     );
-    if (newStatus) {
-      this.emitStatusChanged(page, workspace, user, newStatus, fields.status);
-    }
+    this.emitStatusChanged(page, workspace, user, change);
     return { page, vocabulary };
   }
 
@@ -550,13 +564,14 @@ export class IdqTaskBoardService {
     return { page, fields, vocabulary };
   }
 
+  /** Reports a status change, if the status really changed. */
   private emitStatusChanged(
     page: Pick<Page, 'id' | 'spaceId'>,
     workspace: Workspace,
     user: User,
-    status: TaskStatus,
-    previousStatus: TaskStatus | null,
+    { previousStatus, status }: StatusChange,
   ) {
+    if (status === null || status === previousStatus) return;
     const event: IdqTaskStatusChangedEvent = {
       pageId: page.id,
       spaceId: page.spaceId,
@@ -569,8 +584,43 @@ export class IdqTaskBoardService {
   }
 
   /**
-   * Pages the user can edit. Readers can't move cards; for writers,
-   * page-level restrictions decide.
+   * Deletes for good a page that createTask has just created, when the task
+   * can't be completed. Nobody has used the page yet, so it skips the trash
+   * (and the space-admin check of a permanent delete in Docmost's
+   * controller); the deletion is audited like one. A failure here is only
+   * logged: the caller reports the original error.
+   */
+  private async removeCreatedPage(
+    page: Pick<Page, 'id' | 'slugId' | 'title' | 'spaceId'>,
+    workspace: Workspace,
+  ) {
+    try {
+      await this.docmost.pageService.forceDelete(page.id, workspace.id);
+      this.auditService.log({
+        event: AuditEvent.PAGE_DELETED,
+        resourceType: AuditResource.PAGE,
+        resourceId: page.id,
+        spaceId: page.spaceId,
+        changes: {
+          before: {
+            pageId: page.id,
+            slugId: page.slugId,
+            title: getPageTitle(page.title),
+            spaceId: page.spaceId,
+          },
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Could not remove page ${page.id} of a task left incomplete: ${err}`,
+      );
+    }
+  }
+
+  /**
+   * Pages the user can edit, with the rule of Docmost's sidebar
+   * (PageService.getSidebarPages): space writers can edit a page unless
+   * page-level restrictions say otherwise; space readers edit none.
    */
   private async editablePageIds(
     pageIds: string[],

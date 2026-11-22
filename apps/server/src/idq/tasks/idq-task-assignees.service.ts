@@ -1,17 +1,9 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectKysely } from 'nestjs-kysely';
 import { sql } from 'kysely';
 import { User, Workspace } from '@docmost/db/types/entity.types';
-import WorkspaceAbilityFactory from '../../core/casl/abilities/workspace-ability.factory';
-import {
-  WorkspaceCaslAction,
-  WorkspaceCaslSubject,
-} from '../../core/casl/interfaces/workspace-ability.type';
 import { IdqKyselyDB } from '../database/idq-db.types';
+import { IdqTaskSettingsService } from './idq-task-settings.service';
 import {
   buildAssigneeIndex,
   isLabelValue,
@@ -45,7 +37,10 @@ export type WorkspaceMember = AssigneeUser & {
   value: string;
 };
 
-type MemberRow = AssigneeUser & { email: string };
+/** A member an admin can link a value to, with their email to tell them apart. */
+export type MappableMember = AssigneeUser & { email: string };
+
+type MemberRow = MappableMember;
 
 type Directory = {
   members: MemberRow[];
@@ -58,13 +53,18 @@ type Directory = {
  * Who each person-in-charge label stands for. An admin can link a value to
  * a member (needed when first names repeat, or an account has another
  * name); otherwise the value is matched by name or email
- * (buildAssigneeIndex). Emails never leave this service.
+ * (buildAssigneeIndex).
+ *
+ * Full emails only go to workspace admins (candidates), who see them in
+ * Docmost's member list anyway. Other users can get the part of an email
+ * before the @ as the label value of a member (pickerOptions), since that
+ * is one of the ways a label names a member.
  */
 @Injectable()
 export class IdqTaskAssigneesService {
   constructor(
     @InjectKysely() private readonly db: IdqKyselyDB,
-    private readonly workspaceAbility: WorkspaceAbilityFactory,
+    private readonly settings: IdqTaskSettingsService,
   ) {}
 
   /** Resolves label values to members, for the board and the panel. */
@@ -73,13 +73,18 @@ export class IdqTaskAssigneesService {
   }
 
   /**
-   * Members of the workspace with the label value that stands for each of
-   * them: a value chosen by an admin, or else their full name, email or
-   * first name, whichever resolves back to them. Members that no value
-   * resolves to (e.g. two members with the same name and email prefix) are
-   * left out until an admin links a value to them. Values are unique.
+   * For the pickers of the task panel, from one read of the members: the
+   * resolver of label values, and the members of the workspace with the
+   * label value that stands for each of them: a value chosen by an admin, or
+   * else their full name, email before the @ or first name, whichever
+   * resolves back to them. Members that no value resolves to (e.g. two
+   * members with the same name and email prefix) are left out until an
+   * admin links a value to them. Values are unique.
    */
-  async members(workspaceId: string): Promise<WorkspaceMember[]> {
+  async pickerOptions(workspaceId: string): Promise<{
+    resolve: Directory['resolve'];
+    members: WorkspaceMember[];
+  }> {
     const { members, chosen, resolve } = await this.directory(workspaceId);
     const chosenByUser = new Map<string, string[]>();
     for (const [value, userId] of [...chosen].sort()) {
@@ -101,35 +106,63 @@ export class IdqTaskAssigneesService {
       );
       if (value) result.push({ ...toAssigneeUser(member), value });
     }
-    return result.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+    result.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+    return { resolve, members: result };
   }
 
   /**
-   * The given person-in-charge values (those the admin can see in use) and
-   * the values already linked, with who they stand for. Admins only.
+   * Every member who can log in, with their email, for the admin who links
+   * values to members: unlike pickerOptions, it includes the members that
+   * no value resolves to, who are the ones that need a link. Admins only.
+   */
+  async candidates(
+    user: User,
+    workspace: Workspace,
+  ): Promise<MappableMember[]> {
+    this.settings.assertAdmin(user, workspace);
+    const members = await this.activeUsers(workspace.id).execute();
+    return members
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        email: m.email,
+        avatarUrl: m.avatarUrl,
+      }))
+      .sort(
+        (a, b) =>
+          (a.name ?? '').localeCompare(b.name ?? '') ||
+          a.email.localeCompare(b.email),
+      );
+  }
+
+  /**
+   * The person-in-charge values in use (those the admin can see, loaded by
+   * usedValues once the admin check has passed) and the values already
+   * linked, with who they stand for. Admins only.
    */
   async listMappings(
     user: User,
     workspace: Workspace,
-    usedValues: string[],
+    usedValues: () => Promise<string[]>,
   ): Promise<AssigneeMappingRow[]> {
-    this.assertAdmin(user, workspace);
+    this.settings.assertAdmin(user, workspace);
 
-    const { members, chosen } = await this.directory(workspace.id);
+    const [{ members, chosen }, used] = await Promise.all([
+      this.directory(workspace.id),
+      usedValues(),
+    ]);
     const byId = new Map(members.map((m) => [m.id, m]));
     const automatic = buildAssigneeIndex(members);
 
-    return [...new Set([...usedValues, ...chosen.keys()])]
-      .sort()
-      .map((value) => {
-        const chosenUser = byId.get(chosen.get(value));
-        const automaticUser = automatic.get(value);
-        return {
-          value,
-          user: chosenUser ? toAssigneeUser(chosenUser) : null,
-          automatic: automaticUser ? toAssigneeUser(automaticUser) : null,
-        };
-      });
+    return [...new Set([...used, ...chosen.keys()])].sort().map((value) => {
+      const chosenUser = byId.get(chosen.get(value));
+      const automaticUser = automatic.get(value);
+      return {
+        value,
+        user: chosenUser ? toAssigneeUser(chosenUser) : null,
+        automatic: automaticUser ? toAssigneeUser(automaticUser) : null,
+      };
+    });
   }
 
   /**
@@ -142,7 +175,7 @@ export class IdqTaskAssigneesService {
     user: User,
     workspace: Workspace,
   ): Promise<void> {
-    this.assertAdmin(user, workspace);
+    this.settings.assertAdmin(user, workspace);
 
     if (!userId) {
       await this.db
@@ -211,16 +244,6 @@ export class IdqTaskAssigneesService {
       .where('workspaceId', '=', workspaceId)
       .where('deletedAt', 'is', null)
       .where('deactivatedAt', 'is', null);
-  }
-
-  /** Throws ForbiddenException unless the user is a workspace admin. */
-  assertAdmin(user: User, workspace: Workspace) {
-    const ability = this.workspaceAbility.createForUser(user, workspace);
-    if (
-      ability.cannot(WorkspaceCaslAction.Manage, WorkspaceCaslSubject.Settings)
-    ) {
-      throw new ForbiddenException();
-    }
   }
 }
 

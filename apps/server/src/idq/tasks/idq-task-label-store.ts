@@ -1,18 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectKysely } from 'nestjs-kysely';
 import { RawBuilder, sql } from 'kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { LabelType } from '@docmost/db/repos/label/label.repo';
 import { SpaceMemberRepo } from '@docmost/db/repos/space/space-member.repo';
 import {
+  LABEL_NAME_MAX_LENGTH,
   ParsedTaskLabels,
   TASK_FIELDS,
+  TASK_VALUE_FIELDS,
   TaskField,
+  TaskFieldsUpdate,
   TaskStatus,
   TaskVocabulary,
   escapeLike,
-  fieldOfLabel,
+  labelName,
   parseTaskLabels,
+  planTaskLabels,
 } from './idq-task-fields';
 import { IdqDocmost } from '../core/idq-docmost.service';
 import { IdqPageLock } from '../core/idq-page-lock.service';
@@ -146,32 +150,41 @@ export class IdqTaskLabelStore {
     );
   }
 
-  async setStatus(
-    pageId: string,
-    workspaceId: string,
-    vocabulary: TaskVocabulary,
-    status: TaskStatus,
-  ): Promise<void> {
-    await this.replaceFields(pageId, workspaceId, vocabulary, {
-      status: [vocabulary.statuses[status][0]],
-    });
-  }
-
   /**
-   * Replaces, for each given field, the page's labels of that field with the
-   * given values. Fields not given are left alone. Changes to the same page
-   * are serialized, so two quick moves can't leave two status labels.
+   * Applies an update to the task fields of a page (see TaskFieldsUpdate)
+   * and returns its status before and after.
+   *
+   * Changes to the same page are serialized with IdqPageLock, and the
+   * current labels are read under that lock, so two quick moves can't leave
+   * two status labels and the status before is the one really replaced.
+   * The lock lives in this process: like IdqPageLock, this assumes the
+   * server runs as a single instance.
+   *
+   * The labels are written with Docmost's LabelService, which uses one
+   * transaction per call: labels are added first and removed after, so a
+   * failure halfway never leaves a task without a status (at worst with an
+   * old label too, which the next change removes).
    */
-  async replaceFields(
+  async writeFields(
     pageId: string,
     workspaceId: string,
     vocabulary: TaskVocabulary,
-    changes: Partial<Record<TaskField, string[]>>,
-  ): Promise<void> {
-    const fields = TASK_FIELDS.filter((field) => changes[field] !== undefined);
-    if (fields.length === 0) return;
+    update: TaskFieldsUpdate,
+  ): Promise<{
+    previousStatus: TaskStatus | null;
+    status: TaskStatus | null;
+  }> {
+    for (const field of TASK_VALUE_FIELDS) {
+      for (const value of update[field] ?? []) {
+        if (
+          labelName(field, value, vocabulary).length > LABEL_NAME_MAX_LENGTH
+        ) {
+          throw new BadRequestException(`"${value}" is too long`);
+        }
+      }
+    }
 
-    await this.pageLock.run(pageId, async () => {
+    return this.pageLock.run(pageId, async () => {
       const current = await this.db
         .selectFrom('pageLabels')
         .innerJoin('labels', 'labels.id', 'pageLabels.labelId')
@@ -179,31 +192,25 @@ export class IdqTaskLabelStore {
         .where('pageLabels.pageId', '=', pageId)
         .where('labels.workspaceId', '=', workspaceId)
         .where('labels.type', '=', LabelType.PAGE)
-        .where(labelOfFields(vocabulary, fields))
+        .where(labelOfFields(vocabulary, TASK_FIELDS))
         .execute();
 
-      const wanted = new Set(
-        fields.flatMap((field) =>
-          changes[field].map((value) => vocabulary.prefixes[field] + value),
-        ),
+      const plan = planTaskLabels(
+        current.map((label) => label.name),
+        update,
+        vocabulary,
       );
-      const present = new Set(current.map((label) => label.name));
 
-      const toAdd = [...wanted].filter((name) => !present.has(name));
-      if (toAdd.length > 0) {
+      if (plan.add.length > 0) {
         await this.docmost.labelService.addLabelsToPage(
           pageId,
-          toAdd,
+          plan.add,
           workspaceId,
         );
       }
-
-      // Removed after adding, so a failure never leaves a task without a
-      // status. The LIKE above can also match labels of another field with a
-      // longer prefix: fieldOfLabel tells them apart.
+      const remove = new Set(plan.remove);
       for (const label of current) {
-        const field = fieldOfLabel(label.name, vocabulary)?.field;
-        if (field && fields.includes(field) && !wanted.has(label.name)) {
+        if (remove.has(label.name)) {
           await this.docmost.labelService.removeLabelFromPage(
             pageId,
             label.id,
@@ -211,6 +218,8 @@ export class IdqTaskLabelStore {
           );
         }
       }
+
+      return { previousStatus: plan.before.status, status: plan.after.status };
     });
   }
 
@@ -245,7 +254,9 @@ export class IdqTaskLabelStore {
 
   /**
    * The parent page that holds most tasks of the space (an index page, for
-   * instance), or null when most are at the root.
+   * instance), or null when most are at the root. It doesn't check
+   * permissions: the caller falls back to the root if the user can't write
+   * under it.
    */
   async usualTaskParent(
     spaceId: string,
@@ -272,6 +283,9 @@ export class IdqTaskLabelStore {
       )
       .groupBy('pages.parentPageId')
       .orderBy('count', 'desc')
+      // On a tie, the parent of the newest task, then any fixed order.
+      .orderBy((eb) => eb.fn.max('pages.createdAt'), 'desc')
+      .orderBy('pages.parentPageId')
       .limit(1)
       .executeTakeFirst();
     return row?.parentPageId ?? null;

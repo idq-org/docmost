@@ -4,9 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectKysely } from 'nestjs-kysely';
+import { Insertable } from 'kysely';
 import { isUUID } from 'class-validator';
 import { Page, User } from '@docmost/db/types/entity.types';
-import { IdqKyselyDB, IdqTaskLinkType } from '../database/idq-db.types';
+import {
+  IdqKyselyDB,
+  IdqTaskLinkType,
+  IdqTaskLinks,
+} from '../database/idq-db.types';
 import { IdqPageAccess } from '../core/idq-page-access.service';
 
 export const MAX_LINKS_PER_TASK = 100;
@@ -130,7 +135,8 @@ export class IdqTaskLinksService {
 
   /**
    * Links a material to a task page that the caller has found editable and
-   * checked to be a task.
+   * checked to be a task. Linking a page or file that is already linked
+   * returns the existing link.
    */
   async add(
     task: Page,
@@ -138,24 +144,16 @@ export class IdqTaskLinksService {
     user: User,
     workspaceId: string,
   ): Promise<TaskLinkView> {
-    const { count } = await this.db
-      .selectFrom('idqTaskLinks')
-      .select((eb) => eb.fn.countAll<string>().as('count'))
-      .where('taskPageId', '=', task.id)
-      .executeTakeFirstOrThrow();
-    if (Number(count) >= MAX_LINKS_PER_TASK) {
-      throw new BadRequestException(
-        `A task can have at most ${MAX_LINKS_PER_TASK} linked materials`,
-      );
-    }
-
     const base = {
       workspaceId,
       taskPageId: task.id,
       createdById: user.id,
     };
 
-    let id: string | undefined;
+    let values: Insertable<IdqTaskLinks>;
+    // The column that makes a link unique for its task, if any.
+    let unique: { column: 'targetPageId' | 'attachmentId'; id: string } | null =
+      null;
     if (input.type === 'page') {
       const target = await this.findVisibleTargetPage(
         input.targetPageId,
@@ -165,36 +163,66 @@ export class IdqTaskLinksService {
       if (target === task.id) {
         throw new BadRequestException('A task cannot link to itself');
       }
-      id = await this.insertOrFind(
-        { ...base, type: 'page', targetPageId: target },
-        'targetPageId',
-        target,
-      );
+      values = { ...base, type: 'page', targetPageId: target };
+      unique = { column: 'targetPageId', id: target };
     } else if (input.type === 'attachment') {
       const attachmentId = await this.findVisibleAttachment(
         input.attachmentId,
         user,
         workspaceId,
       );
-      id = await this.insertOrFind(
-        { ...base, type: 'attachment', attachmentId },
-        'attachmentId',
-        attachmentId,
-      );
+      values = { ...base, type: 'attachment', attachmentId };
+      unique = { column: 'attachmentId', id: attachmentId };
     } else {
       if (!input.url) throw new BadRequestException('url is required');
-      const row = await this.db
+      values = {
+        ...base,
+        type: 'url',
+        url: input.url,
+        title: input.title?.trim() || null,
+      };
+    }
+
+    const id = await this.db.transaction().execute(async (trx) => {
+      // Locks the task page row until the end of the transaction, so links
+      // added to the same task at the same time are counted one after the
+      // other. "No key update" doesn't block reads, nor rows that reference
+      // the page; edits of the page row wait for a few milliseconds at most.
+      await trx
+        .selectFrom('pages')
+        .select('id')
+        .where('id', '=', task.id)
+        .forNoKeyUpdate()
+        .execute();
+
+      if (unique) {
+        const existing = await trx
+          .selectFrom('idqTaskLinks')
+          .select('id')
+          .where('taskPageId', '=', task.id)
+          .where(unique.column, '=', unique.id)
+          .executeTakeFirst();
+        if (existing) return existing.id;
+      }
+
+      const { count } = await trx
+        .selectFrom('idqTaskLinks')
+        .select((eb) => eb.fn.countAll<string>().as('count'))
+        .where('taskPageId', '=', task.id)
+        .executeTakeFirstOrThrow();
+      if (Number(count) >= MAX_LINKS_PER_TASK) {
+        throw new BadRequestException(
+          `A task can have at most ${MAX_LINKS_PER_TASK} linked materials`,
+        );
+      }
+
+      const row = await trx
         .insertInto('idqTaskLinks')
-        .values({
-          ...base,
-          type: 'url',
-          url: input.url,
-          title: input.title?.trim() || null,
-        })
+        .values(values)
         .returning('id')
         .executeTakeFirstOrThrow();
-      id = row.id;
-    }
+      return row.id;
+    });
 
     const [row] = await this.linkRows([task.id], workspaceId, id);
     return this.toView(row);
@@ -214,35 +242,6 @@ export class IdqTaskLinksService {
       .deleteFrom('idqTaskLinks')
       .where('id', '=', link.id)
       .execute();
-  }
-
-  private async insertOrFind(
-    values: {
-      workspaceId: string;
-      taskPageId: string;
-      createdById: string;
-      type: IdqTaskLinkType;
-      targetPageId?: string;
-      attachmentId?: string;
-    },
-    column: 'targetPageId' | 'attachmentId',
-    targetId: string,
-  ): Promise<string> {
-    const inserted = await this.db
-      .insertInto('idqTaskLinks')
-      .values(values)
-      .onConflict((oc) => oc.doNothing())
-      .returning('id')
-      .executeTakeFirst();
-    if (inserted) return inserted.id;
-
-    const existing = await this.db
-      .selectFrom('idqTaskLinks')
-      .select('id')
-      .where('taskPageId', '=', values.taskPageId)
-      .where(column, '=', targetId)
-      .executeTakeFirstOrThrow();
-    return existing.id;
   }
 
   private async findVisibleTargetPage(

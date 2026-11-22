@@ -1,26 +1,50 @@
 import { Code, Group, Loader, Select, Stack, Table, Text } from "@mantine/core";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { api } from "@/idq/core/docmost";
 import {
+  taskKeys,
   useAssigneeMappingsQuery,
   useSetAssigneeMappingMutation,
-  useTaskFieldOptionsQuery,
 } from "../queries/idq-task-query";
 import { useTaskSettings } from "../hooks/use-task-settings";
+
+/** A member to link a label to (POST /idq/tasks/assignees/members). */
+type MappableMember = {
+  id: string;
+  name: string | null;
+  email: string;
+  avatarUrl: string | null;
+};
+
+/**
+ * Every member of the workspace, with their email (admins only). Not the
+ * members of the task pickers: those leave out the members that no label
+ * value resolves to, who are the ones that need a link.
+ */
+function useMappableMembersQuery() {
+  return useQuery({
+    queryKey: [...taskKeys.all, "assignee-members"],
+    queryFn: async () =>
+      (await api.post<MappableMember[]>("/idq/tasks/assignees/members")).data,
+  });
+}
 
 /**
  * Who each person-in-charge label stands for: a first name can belong to
  * several members, or an account can have another name. Workspace admins
- * only (the server checks).
+ * only (the server checks). spaceId is not used: members and mappings are
+ * the same in every space.
  */
-export function AssigneeMappings({ spaceId }: { spaceId: string }) {
+export function AssigneeMappings(_props: { spaceId?: string }) {
   const { t } = useTranslation();
   const { vocabulary } = useTaskSettings();
   const { data: mappings, isLoading } = useAssigneeMappingsQuery(true);
-  const { data: options } = useTaskFieldOptionsQuery(spaceId, true);
+  const { data: candidates } = useMappableMembersQuery();
   const setMapping = useSetAssigneeMappingMutation();
   const prefix = vocabulary?.prefixes.assignee ?? "";
 
-  if (isLoading || !options) {
+  if (isLoading || !candidates) {
     return (
       <Group justify="center" py="md">
         <Loader size="sm" />
@@ -28,9 +52,10 @@ export function AssigneeMappings({ spaceId }: { spaceId: string }) {
     );
   }
 
-  const members = options.members.map((m) => ({
+  // The email tells apart members with the same name.
+  const members = candidates.map((m) => ({
     value: m.id,
-    label: m.name || m.value,
+    label: m.name ? `${m.name} (${m.email})` : m.email,
   }));
 
   return (

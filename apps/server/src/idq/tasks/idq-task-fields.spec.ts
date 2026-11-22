@@ -6,8 +6,10 @@ import {
   escapeLike,
   fieldOfLabel,
   isLabelValue,
+  labelName,
   nameFromLabelValue,
   parseTaskLabels,
+  planTaskLabels,
   statusLabelName,
   toLabelSlug,
   validateVocabulary,
@@ -115,6 +117,86 @@ describe('task fields', () => {
   it('writes the first value of each status', () => {
     expect(statusLabelName('todo', vocabulary)).toBe('status-todo');
     expect(statusLabelName('done', custom)).toBe('state-closed');
+    expect(labelName('area', 'design', custom)).toBe('team-design');
+  });
+
+  describe('planTaskLabels', () => {
+    const current = [
+      'status-todo',
+      'priority-high',
+      'area-schools',
+      'assignee-anna',
+    ];
+
+    it('moves the task to another column', () => {
+      const plan = planTaskLabels(current, { status: 'done' }, vocabulary);
+      expect(plan.add).toEqual(['status-done']);
+      expect(plan.remove).toEqual(['status-todo']);
+      expect(plan.before.status).toBe('todo');
+      expect(plan.after.status).toBe('done');
+      expect(plan.after.priority).toBe('high');
+    });
+
+    it('changes nothing when the task is already in the column', () => {
+      // "new" is a synonym of todo: it stays as it is
+      const plan = planTaskLabels(
+        ['state-new', 'prio-p0'],
+        { status: 'todo' },
+        custom,
+      );
+      expect(plan).toMatchObject({ add: [], remove: [] });
+      expect(plan.before.status).toBe('todo');
+      expect(plan.after.status).toBe('todo');
+    });
+
+    it('replaces only the fields given', () => {
+      const plan = planTaskLabels(
+        current,
+        { priority: [], assignee: ['anna', 'bruno'] },
+        vocabulary,
+      );
+      expect(plan.add).toEqual(['assignee-bruno']);
+      expect(plan.remove).toEqual(['priority-high']);
+      expect(plan.after).toMatchObject({
+        status: 'todo',
+        priority: null,
+        areas: ['schools'],
+        assignees: ['anna', 'bruno'],
+      });
+    });
+
+    it('removes every status label, known or not, when the task moves', () => {
+      const plan = planTaskLabels(
+        ['status-archived', 'status-blocked', 'status-done'],
+        { status: 'todo' },
+        vocabulary,
+      );
+      expect(plan.before.status).toBe('blocked');
+      expect(plan.add).toEqual(['status-todo']);
+      expect(plan.remove.sort()).toEqual([
+        'status-archived',
+        'status-blocked',
+        'status-done',
+      ]);
+      expect(plan.after.status).toBe('todo');
+    });
+
+    it('gives a new page its first status', () => {
+      const plan = planTaskLabels([], { status: 'waiting' }, vocabulary);
+      expect(plan.add).toEqual(['status-waiting']);
+      expect(plan.before.statusValue).toBeNull();
+      expect(plan.before.status).toBeNull();
+      expect(plan.after.status).toBe('waiting');
+    });
+
+    it('does not take a label of a field with a longer prefix for another', () => {
+      const prefixes = { ...custom.prefixes, area: 'a-', assignee: 'ab-' };
+      const vocab = { ...custom, prefixes };
+      const plan = planTaskLabels(['a-x', 'ab-y'], { area: ['z'] }, vocab);
+      expect(plan.add).toEqual(['a-z']);
+      expect(plan.remove).toEqual(['a-x']);
+      expect(plan.after.assignees).toEqual(['y']);
+    });
   });
 
   it('tells which field a label belongs to', () => {
@@ -188,6 +270,10 @@ describe('task fields', () => {
     expect(toLabelSlug('  Niccolò  D’Amico ')).toBe('niccolo-d-amico');
     expect(toLabelSlug('a.giulianini')).toBe('a-giulianini');
     expect(toLabelSlug('~tilde first')).toBe('tilde-first');
+    // Already decomposed: the combining marks go, the letters stay
+    expect(toLabelSlug('Nicolo\u0300 A\u030Angstro\u0308m')).toBe(
+      'nicolo-angstrom',
+    );
   });
 
   it('turns a value into a name', () => {

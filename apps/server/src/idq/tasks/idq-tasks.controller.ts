@@ -86,7 +86,7 @@ export class IdqTaskCreateDto {
   @IsIn(TASK_STATUSES)
   status: TaskStatus;
 
-  /** Markdown of the new page; without it, the sections of a task. */
+  /** Markdown of the new page; without it (or empty), the sections of a task. */
   @IsOptional()
   @IsString()
   @MaxLength(20000)
@@ -291,6 +291,19 @@ export class IdqTasksController {
   @Post('assignees/list')
   listAssignees(@AuthUser() user: User, @AuthWorkspace() workspace: Workspace) {
     return this.board.assigneeMappings(user, workspace);
+  }
+
+  /**
+   * Every member, with their email, to choose from when linking a
+   * person-in-charge label. Workspace admins only.
+   */
+  @HttpCode(HttpStatus.OK)
+  @Post('assignees/members')
+  listAssigneeCandidates(
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    return this.assignees.candidates(user, workspace);
   }
 
   @HttpCode(HttpStatus.OK)
