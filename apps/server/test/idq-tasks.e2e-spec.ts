@@ -423,6 +423,116 @@ describeE2E('IDQ task board (e2e)', () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it('empty content gets the sections of a task, as no content does', async () => {
+      const res = await api(member, '/idq/tasks/create', {
+        spaceId: sharedSpaceId,
+        title: 'Empty content task',
+        status: 'todo',
+        content: '',
+      });
+      expect(res.status).toBe(200);
+      const [page] = await sql`
+        select content::text as content from pages
+        where id = ${res.data.task.pageId}`;
+      expect(page.content).toContain('Depends on');
+      expect(page.content).toContain('taskItem');
+    });
+
+    it('removes the new page if its status cannot be written', async () => {
+      // Makes the label write fail for this title only
+      await sql.unsafe(`
+        create function idq_e2e_refuse_labels() returns trigger
+        language plpgsql as $$
+        begin
+          if exists (select 1 from pages
+                     where id = new.page_id and title = 'Doomed task') then
+            raise exception 'idq e2e: label refused';
+          end if;
+          return new;
+        end $$;
+        create trigger idq_e2e_refuse_labels before insert on page_labels
+        for each row execute function idq_e2e_refuse_labels();`);
+      try {
+        const res = await api(member, '/idq/tasks/create', {
+          spaceId: sharedSpaceId,
+          title: 'Doomed task',
+          status: 'todo',
+        });
+        expect(res.status).toBeGreaterThanOrEqual(500);
+        // Gone for good, not in the trash: a retry won't leave a duplicate
+        const [{ count }] =
+          await sql`select count(*)::int from pages where title = 'Doomed task'`;
+        expect(count).toBe(0);
+      } finally {
+        await sql.unsafe(`
+          drop trigger idq_e2e_refuse_labels on page_labels;
+          drop function idq_e2e_refuse_labels();`);
+      }
+    });
+
+    describe('when the usual parent is restricted', () => {
+      let fallbackSpaceId: string;
+      let privateIndexId: string;
+
+      beforeAll(async () => {
+        // Most tasks of this space are under a page that only the admin
+        // can open.
+        fallbackSpaceId = (
+          await api(admin, '/spaces/create', {
+            name: 'Fallback',
+            slug: 'fallback',
+          })
+        ).data.id;
+        await api(admin, '/spaces/members/add', {
+          spaceId: fallbackSpaceId,
+          userIds: [memberId],
+          groupIds: [],
+          role: 'writer',
+        });
+        privateIndexId = await createPage(fallbackSpaceId, 'Private index', []);
+        const [access] = await sql`
+          insert into page_access (page_id, workspace_id, space_id, access_level, creator_id)
+          values (${privateIndexId}, ${workspaceId}, ${fallbackSpaceId}, 'restricted', ${adminId})
+          returning id`;
+        await sql`
+          insert into page_permissions (page_access_id, user_id, role, added_by_id)
+          values (${access.id}, ${adminId}, 'writer', ${adminId})`;
+        for (const title of ['Private one', 'Private two']) {
+          await createPage(
+            fallbackSpaceId,
+            title,
+            ['status-todo'],
+            privateIndexId,
+          );
+        }
+      });
+
+      it('the admin creates the task under it', async () => {
+        const res = await api(admin, '/idq/tasks/create', {
+          spaceId: fallbackSpaceId,
+          title: 'Admin task',
+          status: 'todo',
+        });
+        expect(res.status).toBe(200);
+        expect(res.data.page.parentPageId).toBe(privateIndexId);
+      });
+
+      it('a writer who cannot open it gets the task at the root', async () => {
+        const res = await api(member, '/idq/tasks/create', {
+          spaceId: fallbackSpaceId,
+          title: 'Member task',
+          status: 'todo',
+        });
+        expect(res.status).toBe(200);
+        expect(res.data.page.parentPageId).toBeNull();
+        const [page] = await sql`
+          select parent_page_id from pages where id = ${res.data.task.pageId}`;
+        expect(page.parent_page_id).toBeNull();
+        expect(await labelsOf(res.data.task.pageId)).toEqual(['status-todo']);
+        expect(res.text).not.toContain('Private index');
+      });
+    });
   });
 
   describe('task fields', () => {
@@ -572,6 +682,7 @@ describeE2E('IDQ task board (e2e)', () => {
 
       const list = await api(admin, '/idq/tasks/assignees/list');
       expect(list.status).toBe(200);
+      expect(list.data.map((row: any) => row.value)).toContain('volunteer');
       expect(list.data).toEqual(
         expect.arrayContaining([
           {
@@ -643,6 +754,38 @@ describeE2E('IDQ task board (e2e)', () => {
       });
       task = board.data.tasks.find((t: any) => t.pageId === taskId);
       expect(task.assignees[0].user.id).toBe(memberId);
+    });
+
+    it('admins choose among every member, with their email', async () => {
+      expect((await api(member, '/idq/tasks/assignees/members')).status).toBe(
+        403,
+      );
+      // Another "Mario": the first name "mario" no longer resolves to one
+      // member, but both are offered to the admin.
+      const other = await invite('mario.verdi@idq.test', 'Mario Verdi');
+      const otherId = (await api(other, '/users/me')).data.user.id;
+
+      const res = await api(admin, '/idq/tasks/assignees/members');
+      expect(res.status).toBe(200);
+      expect(res.data).toEqual(
+        expect.arrayContaining([
+          {
+            id: memberId,
+            name: 'Mario Rossi',
+            email: 'mario.rossi@idq.test',
+            avatarUrl: null,
+          },
+          {
+            id: otherId,
+            name: 'Mario Verdi',
+            email: 'mario.verdi@idq.test',
+            avatarUrl: null,
+          },
+        ]),
+      );
+      expect(res.data.map((m: any) => m.id)).toEqual(
+        expect.arrayContaining([adminId, readerId]),
+      );
     });
 
     it('rejects unknown users', async () => {
@@ -870,6 +1013,47 @@ describeE2E('IDQ task board (e2e)', () => {
       const [{ count }] = await sql`
         select count(*)::int from idq_task_links where id = ${row.id}`;
       expect(count).toBe(1);
+    });
+
+    it('re-adding a linked file at the limit returns the link; new links are refused', async () => {
+      const busyTaskId = await createPage(sharedSpaceId, 'Busy task', [
+        'status-todo',
+      ]);
+      const file = await api(member, '/idq/tasks/links/add', {
+        taskPageId: busyTaskId,
+        type: 'attachment',
+        attachmentId: sharedAttachmentId,
+      });
+      expect(file.status).toBe(200);
+      // 99 more links: the task is at the limit of 100
+      for (let i = 0; i < 99; i++) {
+        await sql`
+          insert into idq_task_links (workspace_id, task_page_id, type, url)
+          values (${workspaceId}, ${busyTaskId}, 'url', ${`https://example.org/${i}`})`;
+      }
+
+      const again = await api(member, '/idq/tasks/links/add', {
+        taskPageId: busyTaskId,
+        type: 'attachment',
+        attachmentId: sharedAttachmentId,
+      });
+      expect(again.status).toBe(200);
+      expect(again.data.id).toBe(file.data.id);
+
+      const extra = await api(member, '/idq/tasks/links/add', {
+        taskPageId: busyTaskId,
+        type: 'url',
+        url: 'https://example.org/one-too-many',
+      });
+      expect(extra.status).toBe(400);
+      const [{ count }] = await sql`
+        select count(*)::int from idq_task_links where task_page_id = ${busyTaskId}`;
+      expect(count).toBe(100);
+
+      await api(admin, '/pages/delete', {
+        pageId: busyTaskId,
+        permanentlyDelete: true,
+      });
     });
 
     it('links go away with the task page', async () => {

@@ -65,18 +65,26 @@ export class IdqTaskSettingsService {
     }
   }
 
-  /** Workspace admins only. It doesn't rename existing labels. */
-  async update(
-    input: unknown,
-    user: User,
-    workspace: Workspace,
-  ): Promise<TaskSettings> {
+  /**
+   * Throws ForbiddenException unless the user is a workspace admin: board
+   * settings and people in charge are theirs.
+   */
+  assertAdmin(user: User, workspace: Workspace) {
     const ability = this.workspaceAbility.createForUser(user, workspace);
     if (
       ability.cannot(WorkspaceCaslAction.Manage, WorkspaceCaslSubject.Settings)
     ) {
       throw new ForbiddenException();
     }
+  }
+
+  /** Workspace admins only. It doesn't rename existing labels. */
+  async update(
+    input: unknown,
+    user: User,
+    workspace: Workspace,
+  ): Promise<TaskSettings> {
+    this.assertAdmin(user, workspace);
 
     let vocabulary: TaskVocabulary;
     try {

@@ -77,10 +77,6 @@ export function isLabelValue(value: string): boolean {
   );
 }
 
-export function isTaskStatus(value: unknown): value is TaskStatus {
-  return (TASK_STATUSES as readonly string[]).includes(value as string);
-}
-
 export class InvalidVocabularyError extends Error {}
 
 /**
@@ -161,12 +157,21 @@ export function validateVocabulary(input: unknown): TaskVocabulary {
   };
 }
 
+/** Label name of a field value, e.g. `priority-high`. */
+export function labelName(
+  field: TaskField,
+  value: string,
+  vocabulary: TaskVocabulary,
+): string {
+  return vocabulary.prefixes[field] + value;
+}
+
 /** Label name written for a status, e.g. `status-in-progress`. */
 export function statusLabelName(
   status: TaskStatus,
   vocabulary: TaskVocabulary,
 ): string {
-  return vocabulary.prefixes.status + vocabulary.statuses[status][0];
+  return labelName('status', vocabulary.statuses[status][0], vocabulary);
 }
 
 export type ParsedTaskLabels = {
@@ -254,6 +259,77 @@ export function parseTaskLabels(
   return result;
 }
 
+/** Fields whose labels hold free values (everything but the status). */
+export type TaskValueField = Exclude<TaskField, 'status'>;
+
+export const TASK_VALUE_FIELDS: readonly TaskValueField[] = [
+  'priority',
+  'area',
+  'assignee',
+];
+
+/**
+ * A change to the fields of a task. A status moves the task to that column
+ * (nothing changes if it is already there); a list of values replaces the
+ * labels of that field (an empty list removes them). Fields not given are
+ * left alone.
+ */
+export type TaskFieldsUpdate = { status?: TaskStatus } & Partial<
+  Record<TaskValueField, string[]>
+>;
+
+export type TaskLabelPlan = {
+  /** Label names to add to the page. */
+  add: string[];
+  /** Label names to remove from the page. */
+  remove: string[];
+  /** Task fields before and after the change. */
+  before: ParsedTaskLabels;
+  after: ParsedTaskLabels;
+};
+
+/**
+ * The labels to add and remove to apply an update to a page that has the
+ * given task labels. The labels of a field are matched with fieldOfLabel,
+ * so a label of a field with a longer prefix is never taken for another.
+ */
+export function planTaskLabels(
+  current: string[],
+  update: TaskFieldsUpdate,
+  vocabulary: TaskVocabulary,
+): TaskLabelPlan {
+  const before = parseTaskLabels(current, vocabulary);
+
+  const wanted = new Map<TaskField, string[]>();
+  if (update.status !== undefined && update.status !== before.status) {
+    wanted.set('status', [statusLabelName(update.status, vocabulary)]);
+  }
+  for (const field of TASK_VALUE_FIELDS) {
+    const values = update[field];
+    if (values !== undefined) {
+      wanted.set(
+        field,
+        values.map((value) => labelName(field, value, vocabulary)),
+      );
+    }
+  }
+
+  const wantedNames = new Set([...wanted.values()].flat());
+  const present = new Set(current);
+  const add = [...wantedNames].filter((name) => !present.has(name));
+  const remove = [...present].filter((name) => {
+    const field = fieldOfLabel(name, vocabulary)?.field;
+    return field !== undefined && wanted.has(field) && !wantedNames.has(name);
+  });
+
+  const removed = new Set(remove);
+  const after = parseTaskLabels(
+    [...[...present].filter((name) => !removed.has(name)), ...add],
+    vocabulary,
+  );
+  return { add, remove, before, after };
+}
+
 /** Escapes `%`, `_` and `\` for a SQL LIKE pattern. */
 export function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, '\\$&');
@@ -265,12 +341,15 @@ export function escapeLike(text: string): string {
  * hyphens.
  */
 export function toLabelSlug(text: string): string {
-  return text
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_~]+/g, '-')
-    .replace(/^[-~]+|-+$/g, '');
+  return (
+    text
+      .normalize('NFD')
+      // Combining diacritical marks left by NFD: "ò" → "o".
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_~]+/g, '-')
+      .replace(/^[-~]+|-+$/g, '')
+  );
 }
 
 export type AssigneeCandidate = {
